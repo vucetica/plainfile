@@ -1,0 +1,10 @@
+Plainfile sample notes
+
+This is a plain text file. It shows the editor without syntax coloring:
+line numbers on the left, the text on the right, and the statistics in the
+status bar at the bottom.
+
+Things to try:
+- Press Command-N to open a new tab.
+- Use the Syntax menu in the status bar to treat this file as Markdown.
+- Press Command-F to search.
