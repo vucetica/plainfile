@@ -59,6 +59,12 @@ final class TableModel {
     var newColumnName = ""
     private(set) var visibleRows: [DataRow] = []
     private(set) var rowNumbers: [UUID: Int] = [:]
+    /// Row numbers (1-based, in file order) for each entry of `visibleRows`.
+    private(set) var visibleRowNumbers: [Int] = []
+    /// Position of each visible row inside `visibleRows`.
+    private(set) var visibleIndexByID: [UUID: Int] = [:]
+    /// Incremented whenever the visible rows change. The grid reloads when it moves.
+    private(set) var generation = 0
 
     weak var undoManager: UndoManager?
     var onChange: ((DelimitedTable) -> Void)?
@@ -85,6 +91,12 @@ final class TableModel {
                 row.cells.contains { $0.localizedCaseInsensitiveContains(needle) }
             }
         }
+        visibleRowNumbers = visibleRows.map { numbers[$0.id] ?? 0 }
+        var indexByID: [UUID: Int] = [:]
+        indexByID.reserveCapacity(visibleRows.count)
+        for (i, row) in visibleRows.enumerated() { indexByID[row.id] = i }
+        visibleIndexByID = indexByID
+        generation &+= 1
         selection = selection.filter { numbers[$0] != nil }
     }
 
@@ -116,6 +128,14 @@ final class TableModel {
     }
 
     // MARK: Cell editing
+
+    /// Fast, index based access used by the grid while scrolling.
+    func cell(atVisibleRow row: Int, column: Int) -> String {
+        guard row >= 0, row < visibleRows.count else { return "" }
+        let cells = visibleRows[row].cells
+        guard column >= 0, column < cells.count else { return "" }
+        return cells[column]
+    }
 
     func cellValue(rowID: UUID, column: Int) -> String {
         guard let index = rowNumbers[rowID].map({ $0 - 1 }), index < table.rows.count, column < table.rows[index].cells.count else { return "" }

@@ -57,40 +57,13 @@ struct TableEditorView: View {
     }
 
     private var tableView: some View {
-        Table(of: DataRow.self, selection: $model.selection, sortOrder: $model.sortOrder) {
-            TableColumn("#") { row in
-                Text(model.rowNumbers[row.id].map(String.init) ?? "")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            .width(min: 36, ideal: 44, max: 80)
-
-            TableColumnForEach(model.columnInfos) { column in
-                TableColumn(column.title, sortUsing: CellComparator(column: column.id)) { row in
-                    CellEditor(model: model, rowID: row.id, column: column.id)
-                }
-                .width(min: 60, ideal: 160)
-            }
-        } rows: {
-            ForEach(model.visibleRows) { row in
-                TableRow(row)
-                    .contextMenu {
-                        Button("Insert Row Above") { model.insertRow(before: row.id) }
-                        Button("Insert Row Below") { model.addRow(after: row.id) }
-                        Button("Duplicate Row") {
-                            model.selection = [row.id]
-                            model.duplicateSelectedRows()
-                        }
-                        Divider()
-                        Button("Delete Row", role: .destructive) { model.deleteRow(id: row.id) }
-                    }
-            }
-        }
-        .onDeleteCommand { model.deleteSelectedRows() }
-        .contextMenu {
-            Button("Add Row") { model.addRow() }
-            Button("Add Column…") { model.showAddColumn = true }
-        }
+        TableGridView(
+            model: model,
+            columns: model.columnInfos,
+            generation: model.generation,
+            selection: model.selection,
+            sortOrder: model.sortOrder
+        )
     }
 
     private func wire() {
@@ -127,32 +100,5 @@ struct TableEditorView: View {
         }
         document.formatHandler = nil
         document.flushPendingEdits = nil
-    }
-}
-
-/// A text field that commits its value when editing ends, so each edit is a single undo step.
-private struct CellEditor: View {
-    let model: TableModel
-    let rowID: UUID
-    let column: Int
-    @State private var text = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        TextField("", text: $text)
-            .textFieldStyle(.plain)
-            .focused($focused)
-            .onAppear { text = model.cellValue(rowID: rowID, column: column) }
-            .onChange(of: model.cellValue(rowID: rowID, column: column)) { _, value in
-                if !focused { text = value }
-            }
-            .onChange(of: focused) { _, isFocused in
-                if !isFocused { commit() }
-            }
-            .onSubmit { commit() }
-    }
-
-    private func commit() {
-        model.setCell(rowID: rowID, column: column, value: text)
     }
 }
