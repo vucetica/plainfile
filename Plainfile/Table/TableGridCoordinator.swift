@@ -35,6 +35,24 @@ final class GridTableView: NSTableView {
     }
 }
 
+/// Row view that draws the vertical column separators. Doing this per row instead
+/// of with `gridStyleMask` keeps the lines inside the rows: AppKit otherwise extends
+/// them over the empty area, the floating header and the title bar.
+final class GridRowView: NSTableRowView {
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard let table = superview as? NSTableView else { return }
+        let spacing = table.intercellSpacing.width
+        NSColor.gridColor.setFill()
+        for index in 0..<table.numberOfColumns {
+            let column = convert(table.rect(ofColumn: index), from: table)
+            let x = (column.maxX + spacing / 2).rounded(.down)
+            let line = NSRect(x: x, y: 0, width: 1, height: bounds.height)
+            if line.intersects(dirtyRect) { line.fill() }
+        }
+    }
+}
+
 /// Cell view that keeps its text field covering the whole cell. Autoresizing masks
 /// alone do not work here because the view is created with a zero frame.
 final class GridCellView: NSTableCellView {
@@ -65,6 +83,7 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     private var columnWidths: [Int: CGFloat] = [:]
 
     static let rowNumberID = NSUserInterfaceItemIdentifier("rownum")
+    static let rowViewID = NSUserInterfaceItemIdentifier("row")
     static let cellID = NSUserInterfaceItemIdentifier("cell")
     static let rowHeight: CGFloat = 22
     private static let cellFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
@@ -101,7 +120,7 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         table.allowsTypeSelect = false
         table.usesAlternatingRowBackgroundColors = true
         table.style = .plain
-        table.gridStyleMask = [.solidVerticalGridLineMask]
+        table.gridStyleMask = []
         table.headerView = NSTableHeaderView()
         table.dataSource = self
         table.delegate = self
@@ -204,6 +223,13 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         guard let column = Self.columnIndex(tableColumn.identifier) else { return nil }
         let view = tableView.makeView(withIdentifier: Self.cellID, owner: self) as? NSTableCellView ?? makeCellView()
         view.textField?.stringValue = model.cell(atVisibleRow: row, column: column)
+        return view
+    }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        if let view = tableView.makeView(withIdentifier: Self.rowViewID, owner: self) as? GridRowView { return view }
+        let view = GridRowView()
+        view.identifier = Self.rowViewID
         return view
     }
 

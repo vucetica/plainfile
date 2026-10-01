@@ -14,6 +14,11 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
             super.viewDidMoveToWindow()
             guard let window, window !== configuredWindow else { return }
             configuredWindow = window
+            // SwiftUI gives document windows a full size content view. The editors do not
+            // scroll under the title bar, and on macOS 26 that style makes AppKit add a
+            // glass "scroll pocket" above every scroll view that mirrors the top of the
+            // content into the title bar (grid lines appeared to run through it).
+            window.styleMask.remove(.fullSizeContentView)
             // Keep the tabbing identifier SwiftUI assigns to document windows so a new
             // window matches the existing ones at the moment AppKit places it.
             window.tabbingMode = .preferred

@@ -94,6 +94,28 @@ struct TableGridTests {
             }
         }
         #expect(dark > 20, "expected text pixels in the first data cell, found \(dark)")
+
+        // Column separators exist inside the rows and stop at the last row.
+        func darkest(atY y: Int) -> CGFloat {
+            var minBrightness: CGFloat = 1
+            for x in Int((rect.minX - 5) * scale)...Int(rect.minX * scale) {
+                if let c = rep.colorAt(x: x, y: y) { minBrightness = min(minBrightness, c.brightnessComponent) }
+            }
+            return minBrightness
+        }
+        // Reference pixel in the empty left part of the row-number column (numbers are right aligned).
+        func beside(atY y: Int) -> CGFloat {
+            rep.colorAt(x: Int((rect.minX - 24) * scale), y: y)?.brightnessComponent ?? 1
+        }
+        let rowY = Int((top + rect.height / 2) * scale)
+        #expect(darkest(atY: rowY) < beside(atY: rowY) - 0.05, "separator missing inside the first row")
+
+        let lastRow = h.scrollView.convert(h.tableView.rect(ofRow: h.tableView.numberOfRows - 1), from: h.tableView)
+        let lastBottom = h.scrollView.isFlipped ? lastRow.maxY : h.scrollView.bounds.height - lastRow.minY
+        for offset in [30, 60, 90] {
+            let y = Int((lastBottom + CGFloat(offset)) * scale)
+            #expect(abs(darkest(atY: y) - beside(atY: y)) < 0.02, "separator drawn \(offset)pt below the last row")
+        }
     }
 
     @Test func selectionSyncsBothWays() {
