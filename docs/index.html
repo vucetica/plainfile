@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Plainfile: a native text, Markdown and CSV editor for macOS</title>
+        <meta
+            name="description"
+            content="Plainfile is a free, open source macOS editor for plain text, source code, Markdown and CSV. It edits Markdown as rich text and CSV files as a table, and it has no account and no tracking."
+        />
+        <meta name="author" content="Aleksandar Vucetic" />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href="https://plainfile.app/" />
+        <meta property="og:type" content="website" />
+        <meta
+            property="og:title"
+            content="Plainfile: a native text, Markdown and CSV editor for macOS"
+        />
+        <meta
+            property="og:description"
+            content="A free, open source macOS editor for plain text, code, Markdown and CSV. Markdown opens as rich text and CSV files open as a table."
+        />
+        <meta property="og:url" content="https://plainfile.app/" />
+        <meta property="og:site_name" content="Plainfile" />
+        <meta property="og:image" content="https://plainfile.app/og-image.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta
+            name="twitter:title"
+            content="Plainfile: a native text, Markdown and CSV editor for macOS"
+        />
+        <meta
+            name="twitter:description"
+            content="A free, open source macOS editor for plain text, code, Markdown and CSV."
+        />
+        <meta name="twitter:image" content="https://plainfile.app/og-image.png" />
+        <meta
+            name="theme-color"
+            content="#f7f4ee"
+            media="(prefers-color-scheme: light)"
+        />
+        <meta
+            name="theme-color"
+            content="#161816"
+            media="(prefers-color-scheme: dark)"
+        />
+        <meta name="color-scheme" content="light dark" />
+        <link rel="icon" type="image/png" href="/favicon.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <style>
+            *,
+            *::before,
+            *::after {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            :root {
+                --bg: #f7f4ee;
+                --surface: #ffffff;
+                --text: #1c1d1b;
+                --text-muted: #67685f;
+                --accent: #0f8f8a;
+                --accent-dark: #0b6f6b;
+                --accent-tint: rgba(15, 143, 138, 0.09);
+                --accent-tint-hover: rgba(15, 143, 138, 0.15);
+                --accent-glow: rgba(15, 143, 138, 0.42);
+                --border: #e8e3d9;
+                --border-hover: #d6cfc1;
+                --hover-wash: rgba(28, 29, 27, 0.05);
+                --cta-bg: #1c1d1b;
+                --cta-bg-hover: #33352f;
+                --cta-text: #ffffff;
+                --shadow: 0 4px 24px -8px rgba(28, 29, 27, 0.08);
+                --icon-shadow: 0 12px 32px -8px rgba(28, 29, 27, 0.2);
+            }
+
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --bg: #161816;
+                    --surface: #1f2220;
+                    --text: #ecebe6;
+                    --text-muted: #a3a49b;
+                    --accent: #2fb5ae;
+                    --accent-dark: #0f8f8a;
+                    --accent-tint: rgba(47, 181, 174, 0.12);
+                    --accent-tint-hover: rgba(47, 181, 174, 0.2);
+                    --accent-glow: rgba(15, 143, 138, 0.5);
+                    --border: #2e322f;
+                    --border-hover: #3e433f;
+                    --hover-wash: rgba(236, 235, 230, 0.07);
+                    --cta-bg: #ecebe6;
+                    --cta-bg-hover: #ffffff;
+                    --cta-text: #161816;
+                    --shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.5);
+                    --icon-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+                }
+            }
+
+            html {
+                scroll-behavior: smooth;
+            }
+
+            body {
+                font-family:
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    "SF Pro Text",
+                    "Inter",
+                    "Helvetica Neue",
+                    sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                line-height: 1.6;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+                overflow-x: hidden;
+            }
+
+            :focus-visible {
+                outline: 2px solid var(--accent);
+                outline-offset: 3px;
+                border-radius: 4px;
+            }
+
+            a {
+                color: inherit;
+            }
+
+            .container {
+                max-width: 760px;
+                margin: 0 auto;
+                padding: 0 24px;
+            }
+
+            .container-wide {
+                max-width: 1040px;
+                margin: 0 auto;
+                padding: 0 24px;
+            }
+
+            /* Header */
+            header {
+                padding: 22px 0;
+                position: relative;
+                z-index: 10;
+            }
+
+            header .container-wide {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+            }
+
+            .logo {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 1.0625rem;
+                font-weight: 700;
+                letter-spacing: -0.02em;
+                color: var(--text);
+                text-decoration: none;
+            }
+
+            .logo img {
+                width: 30px;
+                height: 30px;
+                border-radius: 7px;
+            }
+
+            .header-nav {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .header-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 8px 14px;
+                font-size: 0.875rem;
+                font-weight: 500;
+                color: var(--text-muted);
+                border-radius: 999px;
+                text-decoration: none;
+                transition:
+                    color 0.15s,
+                    background 0.15s;
+            }
+
+            .header-link:hover {
+                color: var(--text);
+                background: var(--hover-wash);
+            }
+
+            .header-link svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            .header-cta {
+                display: inline-flex;
+                align-items: center;
+                padding: 9px 16px;
+                font-size: 0.875rem;
+                font-weight: 600;
+                color: var(--cta-text);
+                background: var(--cta-bg);
+                border-radius: 999px;
+                text-decoration: none;
+                transition:
+                    background 0.15s,
+                    transform 0.1s;
+            }
+
+            .header-cta:hover {
+                background: var(--cta-bg-hover);
+            }
+
+            .header-cta:active {
+                transform: translateY(1px);
+            }
+
+            /* Hero */
+            .hero {
+                padding: 40px 0 48px;
+                text-align: center;
+            }
+
+            .hero-icon {
+                width: 88px;
+                height: 88px;
+                border-radius: 20px;
+                margin-bottom: 26px;
+                box-shadow: var(--icon-shadow);
+            }
+
+            .hero-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 14px;
+                margin-bottom: 26px;
+                font-size: 0.8125rem;
+                font-weight: 500;
+                color: var(--text);
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 999px;
+                box-shadow: var(--shadow);
+            }
+
+            .hero-pill .dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: var(--accent);
+                box-shadow: 0 0 0 3px var(--accent-tint-hover);
+            }
+
+            h1 {
+                font-size: clamp(2.25rem, 6vw, 3.75rem);
+                font-weight: 800;
+                letter-spacing: -0.04em;
+                line-height: 1.07;
+                margin-bottom: 22px;
+                text-wrap: balance;
+            }
+
+            .hero-subtitle {
+                font-size: 1.1875rem;
+                color: var(--text-muted);
+                max-width: 580px;
+                margin: 0 auto 36px;
+                line-height: 1.55;
+                text-wrap: pretty;
+            }
+
+            .hero-actions {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-bottom: 18px;
+                scroll-margin-top: 24px;
+            }
+
+            .btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                padding: 14px 26px;
+                font-size: 1rem;
+                font-weight: 600;
+                font-family: inherit;
+                border-radius: 12px;
+                text-decoration: none;
+                border: 1px solid transparent;
+                white-space: nowrap;
+                transition:
+                    background 0.15s,
+                    border-color 0.15s,
+                    transform 0.1s,
+                    box-shadow 0.15s;
+            }
+
+            .btn:active {
+                transform: translateY(1px);
+            }
+
+            .btn-primary {
+                color: #fff;
+                background: var(--accent-dark);
+                box-shadow: 0 8px 20px -6px var(--accent-glow);
+            }
+
+            .btn-primary:hover {
+                background: #095c59;
+            }
+
+            .btn-secondary {
+                color: var(--text);
+                background: var(--surface);
+                border-color: var(--border);
+            }
+
+            .btn-secondary:hover {
+                border-color: var(--border-hover);
+            }
+
+            .btn svg {
+                width: 20px;
+                height: 20px;
+                flex: none;
+            }
+
+            .platform-note {
+                font-size: 0.875rem;
+                color: var(--text-muted);
+            }
+
+            /* Features */
+            .features {
+                padding: 24px 0 88px;
+            }
+
+            .section-title {
+                font-size: 1.5rem;
+                font-weight: 800;
+                letter-spacing: -0.025em;
+                text-align: center;
+                margin-bottom: 8px;
+            }
+
+            .section-lead {
+                font-size: 1rem;
+                color: var(--text-muted);
+                text-align: center;
+                max-width: 560px;
+                margin: 0 auto 32px;
+            }
+
+            .feature-grid {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 16px;
+            }
+
+            .feature {
+                padding: 26px;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 18px;
+                box-shadow: var(--shadow);
+                min-width: 0;
+            }
+
+            .feature-icon {
+                width: 44px;
+                height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--accent);
+                background: var(--accent-tint);
+                border-radius: 12px;
+                margin-bottom: 18px;
+            }
+
+            .feature-icon svg {
+                width: 24px;
+                height: 24px;
+            }
+
+            .feature h3 {
+                font-size: 1.0625rem;
+                font-weight: 700;
+                margin-bottom: 6px;
+                letter-spacing: -0.01em;
+            }
+
+            .feature p {
+                font-size: 0.9375rem;
+                color: var(--text-muted);
+                line-height: 1.55;
+            }
+
+            /* Open source strip */
+            .oss {
+                padding: 0 0 96px;
+            }
+
+            .oss-strip {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 20px;
+                padding: 24px 32px;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 18px;
+                box-shadow: var(--shadow);
+            }
+
+            .oss-strip p {
+                font-size: 0.9375rem;
+                color: var(--text-muted);
+                line-height: 1.55;
+            }
+
+            .oss-strip strong {
+                color: var(--text);
+                font-weight: 600;
+            }
+
+            .oss-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 10px 18px;
+                font-size: 0.9375rem;
+                font-weight: 600;
+                color: var(--accent);
+                background: var(--accent-tint);
+                border-radius: 999px;
+                text-decoration: none;
+                white-space: nowrap;
+                transition: background 0.15s;
+            }
+
+            .oss-link:hover {
+                background: var(--accent-tint-hover);
+            }
+
+            .oss-link svg {
+                width: 14px;
+                height: 14px;
+            }
+
+            /* Footer */
+            footer {
+                padding: 28px 0 36px;
+                border-top: 1px solid var(--border);
+            }
+
+            footer .container-wide {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                flex-wrap: wrap;
+            }
+
+            footer p {
+                font-size: 0.8125rem;
+                color: var(--text-muted);
+            }
+
+            footer nav {
+                display: flex;
+                gap: 22px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+
+            footer a {
+                font-size: 0.8125rem;
+                color: var(--text-muted);
+                text-decoration: none;
+                transition: color 0.15s;
+            }
+
+            footer a:hover {
+                color: var(--text);
+            }
+
+            /* Responsive */
+            @media (max-width: 920px) {
+                .feature-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+            }
+
+            @media (max-width: 640px) {
+                .container,
+                .container-wide {
+                    padding: 0 16px;
+                }
+                .header-link {
+                    padding: 8px 10px;
+                }
+                .hero {
+                    padding: 24px 0 36px;
+                }
+                .hero-subtitle {
+                    font-size: 1.0625rem;
+                }
+                .hero-actions {
+                    flex-direction: column;
+                    align-items: stretch;
+                    max-width: 320px;
+                    margin-left: auto;
+                    margin-right: auto;
+                }
+                .feature-grid {
+                    grid-template-columns: 1fr;
+                }
+                .features {
+                    padding: 16px 0 56px;
+                }
+                .oss {
+                    padding-bottom: 64px;
+                }
+                .oss-strip {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    padding: 24px;
+                }
+                footer .container-wide {
+                    flex-direction: column;
+                    gap: 14px;
+                }
+                footer nav {
+                    justify-content: center;
+                    gap: 16px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="container-wide">
+                <a href="/" class="logo">
+                    <img src="/apple-touch-icon.png" alt="" width="30" height="30" />
+                    Plainfile
+                </a>
+                <nav class="header-nav" aria-label="Main">
+                    <a
+                        href="https://github.com/vucetica/plainfile"
+                        class="header-link"
+                        rel="noopener"
+                    >
+                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path
+                                d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.55v-2.05c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.04 11.04 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.4-5.27 5.69.41.36.78 1.06.78 2.13v3.16c0 .31.21.66.8.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z"
+                            />
+                        </svg>
+                        GitHub
+                    </a>
+                    <a href="#download" class="header-cta">Download</a>
+                </nav>
+            </div>
+        </header>
+
+        <main>
+            <section class="hero">
+                <div class="container">
+                    <img
+                        class="hero-icon"
+                        src="/apple-touch-icon.png"
+                        alt="Plainfile app icon"
+                        width="88"
+                        height="88"
+                    />
+                    <div>
+                        <div class="hero-pill">
+                            <span class="dot" aria-hidden="true"></span>
+                            Free and open source · macOS
+                        </div>
+                    </div>
+                    <h1>A plain, fast editor for text, Markdown and CSV.</h1>
+                    <p class="hero-subtitle">
+                        Plainfile is a native Mac app for plain text and source
+                        code. Markdown files open as rich text that you can edit
+                        directly, and CSV files open as a table. Plainfile always
+                        saves your work as plain text, so the files keep working
+                        in every other app.
+                    </p>
+                    <div class="hero-actions" id="download">
+                        <!-- APP_STORE_URL: replace with https://apps.apple.com/app/plainfile/idXXXXXXXXXX after approval -->
+                        <a href="#download" class="btn btn-primary">
+                            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path
+                                    d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
+                                />
+                            </svg>
+                            Mac App Store
+                        </a>
+                        <a
+                            href="https://github.com/vucetica/plainfile/releases/latest"
+                            class="btn btn-secondary"
+                            rel="noopener"
+                        >
+                            <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <path d="M12 3v12" />
+                                <path d="M7.5 10.5 12 15l4.5-4.5" />
+                                <path d="M4.5 17v2a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-2" />
+                            </svg>
+                            Download DMG
+                        </a>
+                    </div>
+                    <p class="platform-note">
+                        macOS 26 or newer · No account · No tracking
+                    </p>
+                </div>
+            </section>
+
+            <section class="features" aria-labelledby="features-title">
+                <div class="container-wide">
+                    <h2 class="section-title" id="features-title">What Plainfile does</h2>
+                    <p class="section-lead">
+                        Each kind of file opens in the view that suits it, and
+                        every document lives as a tab in one window.
+                    </p>
+                    <div class="feature-grid">
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="8 7 3 12 8 17" />
+                                    <polyline points="16 7 21 12 16 17" />
+                                    <line x1="13.5" y1="4.5" x2="10.5" y2="19.5" />
+                                </svg>
+                            </div>
+                            <h3>Code editing</h3>
+                            <p>
+                                Syntax highlighting for more than 30 languages,
+                                with line numbers, word wrap and auto-indent.
+                                The language is detected from the file name.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+                                    <path d="M6 15V9l2.5 3L11 9v6" />
+                                    <path d="M16 9v6" />
+                                    <path d="M13.75 12.75 16 15l2.25-2.25" />
+                                </svg>
+                            </div>
+                            <h3>Rich Markdown</h3>
+                            <p>
+                                Markdown opens as formatted text with headings,
+                                lists, tables and code blocks. Press
+                                Command-Shift-M to see the source.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                                    <line x1="3" y1="9.5" x2="21" y2="9.5" />
+                                    <line x1="3" y1="14.75" x2="21" y2="14.75" />
+                                    <line x1="9.5" y1="4" x2="9.5" y2="20" />
+                                </svg>
+                            </div>
+                            <h3>CSV tables</h3>
+                            <p>
+                                CSV and tab-delimited files open in a fast
+                                table. You can sort, filter, edit cells, and add
+                                or remove rows and columns.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M3 9V6.5A1.5 1.5 0 0 1 4.5 5h4l1.5 4" />
+                                    <path d="M10 9V6.5A1.5 1.5 0 0 1 11.5 5h4l1.5 4" />
+                                    <rect x="3" y="9" width="18" height="11" rx="1.5" />
+                                </svg>
+                            </div>
+                            <h3>Tabs in one window</h3>
+                            <p>
+                                Every document opens as a native macOS tab. The
+                                Window menu can close other tabs, or the tabs to
+                                the left or right.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                                    <path d="M14 3v5h5" />
+                                    <path d="M9 14.5a3 3 0 1 0 1-2.25" />
+                                    <path d="M9 11v1.75h1.75" />
+                                </svg>
+                            </div>
+                            <h3>Native documents</h3>
+                            <p>
+                                Autosave, versions, Open Recent, rename, and Find
+                                and Replace all work the way they do in other Mac
+                                apps.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M4 7h11" />
+                                    <path d="M4 12h8" />
+                                    <path d="M4 17h6" />
+                                    <path d="M20 7v6a3 3 0 0 1-3 3h-3" />
+                                    <polyline points="16 13.5 13.5 16 16 18.5" />
+                                </svg>
+                            </div>
+                            <h3>Encodings and line endings</h3>
+                            <p>
+                                Detects UTF-8, UTF-16, Latin-1 and Windows-1252,
+                                and keeps the file's LF, CRLF or CR line endings
+                                when it saves.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 3l8 3v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V6z" />
+                                    <path d="M9 12l2 2 4-4" />
+                                </svg>
+                            </div>
+                            <h3>Private by default</h3>
+                            <p>
+                                The app has no network access, no account and no
+                                tracking. It only opens the files you choose, and
+                                your files stay on your Mac.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="6" cy="6" r="2.25" />
+                                    <circle cx="6" cy="18" r="2.25" />
+                                    <circle cx="18" cy="8" r="2.25" />
+                                    <path d="M6 8.25v7.5" />
+                                    <path d="M18 10.25c0 4-6 3.5-10.4 6.4" />
+                                </svg>
+                            </div>
+                            <h3>Open source</h3>
+                            <p>
+                                The full source code is on GitHub under the MIT
+                                License. It is written in Swift with SwiftUI and
+                                AppKit.
+                            </p>
+                        </article>
+                    </div>
+                </div>
+            </section>
+
+            <section class="oss">
+                <div class="container-wide">
+                    <div class="oss-strip">
+                        <p>
+                            <strong>Built in the open.</strong> You can read the
+                            code, report a problem, or send a pull request on
+                            GitHub. Plainfile was written mostly with AI coding
+                            agents, and it is shared in case it is useful to
+                            other people too.
+                        </p>
+                        <a
+                            href="https://github.com/vucetica/plainfile"
+                            class="oss-link"
+                            rel="noopener"
+                        >
+                            View on GitHub
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <line x1="5" y1="12" x2="19" y2="12" />
+                                <polyline points="13 6 19 12 13 18" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <div class="container-wide">
+                <p>© 2026 Aleksandar Vucetic</p>
+                <nav aria-label="Footer">
+                    <a href="https://github.com/vucetica/plainfile" rel="noopener">GitHub</a>
+                    <a href="https://github.com/vucetica/plainfile/blob/main/LICENSE" rel="noopener">MIT License</a>
+                    <a href="/privacy">Privacy</a>
+                    <a href="https://github.com/vucetica/plainfile/discussions" rel="noopener">Contact</a>
+                </nav>
+            </div>
+        </footer>
+
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "SoftwareApplication",
+                "name": "Plainfile",
+                "url": "https://plainfile.app/",
+                "image": "https://plainfile.app/og-image.png",
+                "operatingSystem": "macOS 26",
+                "applicationCategory": "DeveloperApplication",
+                "description": "A free, open source macOS editor for plain text, source code, Markdown and CSV. Markdown opens as rich text and CSV files open as a table.",
+                "isAccessibleForFree": true,
+                "offers": {
+                    "@type": "Offer",
+                    "price": "0",
+                    "priceCurrency": "USD"
+                },
+                "author": {
+                    "@type": "Person",
+                    "name": "Aleksandar Vucetic"
+                },
+                "license": "https://opensource.org/licenses/MIT",
+                "codeRepository": "https://github.com/vucetica/plainfile"
+            }
+        </script>
+    </body>
+</html>

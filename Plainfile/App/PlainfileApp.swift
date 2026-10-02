@@ -12,6 +12,8 @@ struct PlainfileApp: App {
         DocumentGroup(newDocument: { PlainDocument() }) { configuration in
             DocumentView(document: configuration.document, fileURL: configuration.fileURL)
         }
+        // Used when no remembered window frame exists yet (see WindowTabbingConfigurator).
+        .defaultSize(width: 1200, height: 800)
         .commands {
             ViewCommands()
             FormatCommands()

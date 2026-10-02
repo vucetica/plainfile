@@ -42,8 +42,10 @@ targets:
     settings:
       base:
         PRODUCT_NAME: Plainfile
-        PRODUCT_BUNDLE_IDENTIFIER: app.plainfile.Plainfile
-        MARKETING_VERSION: "0.1.0"
+        PRODUCT_BUNDLE_IDENTIFIER: app.plainfile.app
+        # Bump by hand for each release (see CLAUDE.md). The build number is a
+        # placeholder: CI sets CURRENT_PROJECT_VERSION from the workflow run number.
+        MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: "NO"
         INFOPLIST_FILE: Plainfile/Resources/Info.plist
@@ -53,6 +55,18 @@ targets:
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
         ENABLE_APP_SANDBOX: "YES"
         CODE_SIGN_ENTITLEMENTS: Plainfile/Resources/Plainfile.entitlements
+      configs:
+        # Debug is ad-hoc signed with no team, so anyone can build and run it
+        # without an Apple account. Its own bundle ID keeps its sandbox container
+        # and settings apart from an installed release build.
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: app.plainfile.app.debug
+        # Release signing is overridden on the command line by CI
+        # (.github/workflows/release.yml) for Developer ID and App Store builds.
+        Release:
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: 8594MRU6A8
+          CODE_SIGN_IDENTITY: "Apple Development"
     scheme:
       testTargets:
         - PlainfileTests
@@ -67,7 +81,7 @@ targets:
       - target: Plainfile
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.plainfile.PlainfileTests
+        PRODUCT_BUNDLE_IDENTIFIER: app.plainfile.tests
         GENERATE_INFOPLIST_FILE: "YES"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Plainfile.app/Contents/MacOS/Plainfile"
         BUNDLE_LOADER: "$(TEST_HOST)"

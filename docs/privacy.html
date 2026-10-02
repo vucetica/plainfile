@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Privacy Policy: Plainfile</title>
+        <meta
+            name="description"
+            content="Plainfile collects no data. It has no network access, no analytics and no account, and your files stay on your Mac."
+        />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href="https://plainfile.app/privacy" />
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="Privacy Policy: Plainfile" />
+        <meta
+            property="og:description"
+            content="Plainfile collects no data. It has no network access, no analytics and no account."
+        />
+        <meta property="og:url" content="https://plainfile.app/privacy" />
+        <meta property="og:site_name" content="Plainfile" />
+        <meta property="og:image" content="https://plainfile.app/og-image.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://plainfile.app/og-image.png" />
+        <meta
+            name="theme-color"
+            content="#f7f4ee"
+            media="(prefers-color-scheme: light)"
+        />
+        <meta
+            name="theme-color"
+            content="#161816"
+            media="(prefers-color-scheme: dark)"
+        />
+        <meta name="color-scheme" content="light dark" />
+        <link rel="icon" type="image/png" href="/favicon.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <style>
+            *,
+            *::before,
+            *::after {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            :root {
+                --bg: #f7f4ee;
+                --surface: #ffffff;
+                --text: #1c1d1b;
+                --text-muted: #67685f;
+                --accent: #0f8f8a;
+                --accent-dark: #0b6f6b;
+                --accent-tint: rgba(15, 143, 138, 0.09);
+                --accent-tint-hover: rgba(15, 143, 138, 0.15);
+                --accent-glow: rgba(15, 143, 138, 0.42);
+                --border: #e8e3d9;
+                --border-hover: #d6cfc1;
+                --hover-wash: rgba(28, 29, 27, 0.05);
+                --cta-bg: #1c1d1b;
+                --cta-bg-hover: #33352f;
+                --cta-text: #ffffff;
+                --shadow: 0 4px 24px -8px rgba(28, 29, 27, 0.08);
+                --icon-shadow: 0 12px 32px -8px rgba(28, 29, 27, 0.2);
+            }
+
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --bg: #161816;
+                    --surface: #1f2220;
+                    --text: #ecebe6;
+                    --text-muted: #a3a49b;
+                    --accent: #2fb5ae;
+                    --accent-dark: #0f8f8a;
+                    --accent-tint: rgba(47, 181, 174, 0.12);
+                    --accent-tint-hover: rgba(47, 181, 174, 0.2);
+                    --accent-glow: rgba(15, 143, 138, 0.5);
+                    --border: #2e322f;
+                    --border-hover: #3e433f;
+                    --hover-wash: rgba(236, 235, 230, 0.07);
+                    --cta-bg: #ecebe6;
+                    --cta-bg-hover: #ffffff;
+                    --cta-text: #161816;
+                    --shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.5);
+                    --icon-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+                }
+            }
+
+            html {
+                scroll-behavior: smooth;
+            }
+
+            body {
+                font-family:
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    "SF Pro Text",
+                    "Inter",
+                    "Helvetica Neue",
+                    sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                line-height: 1.6;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+                overflow-x: hidden;
+            }
+
+            :focus-visible {
+                outline: 2px solid var(--accent);
+                outline-offset: 3px;
+                border-radius: 4px;
+            }
+
+            a {
+                color: inherit;
+            }
+
+            .container {
+                max-width: 760px;
+                margin: 0 auto;
+                padding: 0 24px;
+            }
+
+            .container-wide {
+                max-width: 1040px;
+                margin: 0 auto;
+                padding: 0 24px;
+            }
+
+            /* Header */
+            header {
+                padding: 22px 0;
+                position: relative;
+                z-index: 10;
+            }
+
+            header .container-wide {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+            }
+
+            .logo {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 1.0625rem;
+                font-weight: 700;
+                letter-spacing: -0.02em;
+                color: var(--text);
+                text-decoration: none;
+            }
+
+            .logo img {
+                width: 30px;
+                height: 30px;
+                border-radius: 7px;
+            }
+
+            .header-nav {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .header-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 8px 14px;
+                font-size: 0.875rem;
+                font-weight: 500;
+                color: var(--text-muted);
+                border-radius: 999px;
+                text-decoration: none;
+                transition:
+                    color 0.15s,
+                    background 0.15s;
+            }
+
+            .header-link:hover {
+                color: var(--text);
+                background: var(--hover-wash);
+            }
+
+            .header-link svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            .header-cta {
+                display: inline-flex;
+                align-items: center;
+                padding: 9px 16px;
+                font-size: 0.875rem;
+                font-weight: 600;
+                color: var(--cta-text);
+                background: var(--cta-bg);
+                border-radius: 999px;
+                text-decoration: none;
+                transition:
+                    background 0.15s,
+                    transform 0.1s;
+            }
+
+            .header-cta:hover {
+                background: var(--cta-bg-hover);
+            }
+
+            .header-cta:active {
+                transform: translateY(1px);
+            }
+
+            
+            /* Policy content */
+            .content {
+                padding: 48px 0 80px;
+            }
+
+            .content h1 {
+                font-size: clamp(2rem, 5vw, 2.75rem);
+                font-weight: 800;
+                letter-spacing: -0.035em;
+                line-height: 1.1;
+                margin-bottom: 8px;
+            }
+
+            .content .last-updated {
+                font-size: 0.875rem;
+                color: var(--text-muted);
+                margin-bottom: 40px;
+            }
+
+            .content h2 {
+                font-size: 1.25rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+                margin-top: 36px;
+                margin-bottom: 12px;
+            }
+
+            .content p,
+            .content li {
+                font-size: 1rem;
+                color: var(--text-muted);
+                line-height: 1.7;
+            }
+
+            .content p {
+                margin-bottom: 16px;
+            }
+
+            .content ul {
+                margin: 0 0 16px 22px;
+            }
+
+            .content li {
+                margin-bottom: 6px;
+            }
+
+            .content strong {
+                color: var(--text);
+                font-weight: 600;
+            }
+
+            .content a {
+                color: var(--accent);
+                text-decoration-thickness: 1px;
+                text-underline-offset: 2px;
+            }
+
+            .content code {
+                font-family: ui-monospace, "SF Mono", Menlo, monospace;
+                font-size: 0.875em;
+                padding: 2px 6px;
+                background: var(--accent-tint);
+                border-radius: 6px;
+                color: var(--text);
+                overflow-wrap: anywhere;
+            }
+
+            /* Footer */
+            footer {
+                padding: 28px 0 36px;
+                border-top: 1px solid var(--border);
+            }
+
+            footer .container-wide {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                flex-wrap: wrap;
+            }
+
+            footer p {
+                font-size: 0.8125rem;
+                color: var(--text-muted);
+            }
+
+            footer nav {
+                display: flex;
+                gap: 22px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+
+            footer a {
+                font-size: 0.8125rem;
+                color: var(--text-muted);
+                text-decoration: none;
+                transition: color 0.15s;
+            }
+
+            footer a:hover {
+                color: var(--text);
+            }
+
+            
+            @media (max-width: 640px) {
+                .container,
+                .container-wide {
+                    padding: 0 16px;
+                }
+                .header-link {
+                    padding: 8px 10px;
+                }
+                .content {
+                    padding: 28px 0 56px;
+                }
+                footer .container-wide {
+                    flex-direction: column;
+                    gap: 14px;
+                }
+                footer nav {
+                    justify-content: center;
+                    gap: 16px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="container-wide">
+                <a href="/" class="logo">
+                    <img src="/apple-touch-icon.png" alt="" width="30" height="30" />
+                    Plainfile
+                </a>
+                <nav class="header-nav" aria-label="Main">
+                    <a
+                        href="https://github.com/vucetica/plainfile"
+                        class="header-link"
+                        rel="noopener"
+                    >
+                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path
+                                d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.55v-2.05c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.04 11.04 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.4-5.27 5.69.41.36.78 1.06.78 2.13v3.16c0 .31.21.66.8.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z"
+                            />
+                        </svg>
+                        GitHub
+                    </a>
+                    <a href="/#download" class="header-cta">Download</a>
+                </nav>
+            </div>
+        </header>
+
+        <main class="content">
+            <div class="container">
+                <h1>Privacy Policy</h1>
+                <p class="last-updated">Last updated: October 1, 2026</p>
+
+                <h2>Overview</h2>
+                <p>
+                    Plainfile is a text editor for macOS. It works entirely on
+                    your Mac. It does not collect any data, it has no analytics
+                    or tracking, and it does not connect to the internet.
+                </p>
+
+                <h2>Data collection</h2>
+                <p>Plainfile does not collect, send or store any personal data. In particular, it has:</p>
+                <ul>
+                    <li>No analytics or usage tracking</li>
+                    <li>No crash reports sent to any server</li>
+                    <li>No advertising and no advertising identifiers</li>
+                    <li>No user accounts or sign-in</li>
+                    <li>No cookies or web tracking</li>
+                </ul>
+                <p>
+                    Because nothing is collected, the App Store privacy label for
+                    Plainfile is &ldquo;Data Not Collected&rdquo;.
+                </p>
+
+                <h2>Files you open</h2>
+                <p>
+                    The documents you open, edit and save in Plainfile stay on
+                    your Mac, in the places where you keep them. Plainfile never
+                    copies them anywhere else and never uploads them.
+                </p>
+                <p>
+                    Plainfile runs inside the macOS app sandbox. The sandbox only
+                    lets it read and write the files that you choose yourself,
+                    for example in the Open or Save panel, by opening a file from
+                    Finder, or from Open Recent. Plainfile cannot look through
+                    the rest of your files.
+                </p>
+                <p>
+                    When you choose Help &gt; Open Sample Files, Plainfile copies
+                    a few example files into its own sandbox folder on your Mac
+                    so that you can edit them.
+                </p>
+                <p>
+                    Autosave and versions are provided by macOS. macOS keeps
+                    earlier versions of your documents on your Mac, the same way
+                    it does for other document apps.
+                </p>
+
+                <h2>Settings</h2>
+                <p>
+                    Your editor settings, such as the font, the font size, line
+                    numbers and tab width, and the size and position of the
+                    window, are stored locally on your Mac in the standard macOS
+                    user defaults (<code>UserDefaults</code>). They are never
+                    sent anywhere.
+                </p>
+
+                <h2>Network</h2>
+                <p>
+                    Plainfile has no network access. Its sandbox does not include
+                    the permission to make network connections, so the app
+                    cannot send or receive anything over the internet. If a
+                    Markdown document links to an image on the web, Plainfile
+                    cannot download that image.
+                </p>
+
+                <h2>Third-party services</h2>
+                <p>
+                    Plainfile uses no third-party services, SDKs, analytics or
+                    advertising frameworks. Its only dependency is Apple&rsquo;s
+                    open source
+                    <a href="https://github.com/swiftlang/swift-markdown" rel="noopener">swift-markdown</a>
+                    library, which runs on your Mac and reads Markdown text.
+                </p>
+                <p>
+                    If you download Plainfile from the Mac App Store or from
+                    GitHub, Apple or GitHub handle that download under their own
+                    privacy policies. This website is hosted by GitHub Pages,
+                    which may keep standard server logs such as IP addresses.
+                    The website itself uses no cookies, analytics or tracking.
+                </p>
+
+                <h2>Children&rsquo;s privacy</h2>
+                <p>
+                    Plainfile does not knowingly collect any information from
+                    children. The app does not collect information from anyone.
+                </p>
+
+                <h2>Changes to this policy</h2>
+                <p>
+                    If this privacy policy changes, the new version will be
+                    posted on this page with a new date at the top. The source of
+                    this page is kept in the
+                    <a href="https://github.com/vucetica/plainfile" rel="noopener">Plainfile repository</a>,
+                    so you can see the history of every change.
+                </p>
+
+                <h2>Contact</h2>
+                <p>
+                    If you have a question about this privacy policy, ask in
+                    <a href="https://github.com/vucetica/plainfile/discussions" rel="noopener">GitHub Discussions</a>.
+                </p>
+            </div>
+        </main>
+
+        <footer>
+            <div class="container-wide">
+                <p>© 2026 Aleksandar Vucetic</p>
+                <nav aria-label="Footer">
+                    <a href="https://github.com/vucetica/plainfile" rel="noopener">GitHub</a>
+                    <a href="https://github.com/vucetica/plainfile/blob/main/LICENSE" rel="noopener">MIT License</a>
+                    <a href="/privacy">Privacy</a>
+                    <a href="https://github.com/vucetica/plainfile/discussions" rel="noopener">Contact</a>
+                </nav>
+            </div>
+        </footer>
+    </body>
+</html>

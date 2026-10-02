@@ -1,0 +1,379 @@
+name: Build, Notarize & Release
+
+# Two paths:
+#
+#  * notarized-app  : runs on every push to main (and on tags / manual dispatch).
+#                     Produces a Developer ID-signed, notarized, stapled .app,
+#                     zipped and uploaded as a downloadable GitHub artifact.
+#                     Anyone can download and run it.
+#
+#  * app-store      : runs ONLY on manual dispatch or a vX.Y.Z tag.
+#                     Archives with Apple Distribution, exports the Mac App Store
+#                     .pkg, and uploads it to App Store Connect. You then submit
+#                     for review manually. Merges to main do NOT upload to the store.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#
+#   # Shared
+#   KEYCHAIN_PASSWORD         any random string (temp keychain password)
+#   ASC_KEY_ID                App Store Connect API key ID
+#   ASC_ISSUER_ID             App Store Connect API issuer ID
+#   ASC_KEY_BASE64            base64 of the AuthKey_XXXX.p8 API key file
+#
+#   # Developer ID notarized build (notarized-app job)
+#   DEVID_CERT_BASE64         base64 of the "Developer ID Application" cert+key (.p12)
+#   DEVID_CERT_PASSWORD       password used when exporting that .p12
+#   (No Developer ID provisioning profile is needed: Plainfile uses no iCloud or
+#   other advanced capability, so the Developer ID build signs without one.)
+#
+#   # Mac App Store build (app-store job)
+#   DIST_CERT_BASE64          base64 of the "Apple Distribution" cert+key (.p12)
+#   DIST_CERT_PASSWORD        password for that .p12
+#   INSTALLER_CERT_BASE64     base64 of the "Mac Installer Distribution" cert+key (.p12)
+#   INSTALLER_CERT_PASSWORD   password for that .p12
+#   PROVISIONING_PROFILE_BASE64   base64 of the Mac App Store .provisionprofile
+#
+# Required repository variables (same page, Variables tab):
+#
+#   TEAM_ID                   Apple Developer team ID (8594MRU6A8); the
+#                             signing certificates must belong to this team
+#
+# To base64-encode a file on macOS:  base64 -i file.p12 | pbcopy
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # needed to create/update GitHub Releases on tags
+
+env:
+  TEAM_ID: ${{ vars.TEAM_ID }}
+  BUNDLE_ID: app.plainfile.app
+  PRODUCT_NAME: Plainfile
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Developer ID notarized .app : downloadable artifact, runs on every push.
+  # ---------------------------------------------------------------------------
+  notarized-app:
+    name: Notarized .app (artifact)
+    runs-on: macos-26
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Select latest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Import Developer ID certificate
+        env:
+          DEVID_CERT_BASE64: ${{ secrets.DEVID_CERT_BASE64 }}
+          DEVID_CERT_PASSWORD: ${{ secrets.DEVID_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          P12="$RUNNER_TEMP/devid.p12"
+          echo "$DEVID_CERT_BASE64" | base64 --decode > "$P12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$P12" -P "$DEVID_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security find-identity -v "$KEYCHAIN"
+
+      - name: Archive (Release, Developer ID)
+        run: |
+          set -euo pipefail
+          # Build number = workflow run number, so every upload to App Store
+          # Connect has a higher CFBundleVersion than the one before.
+          # NOTE: keep comments out of the line-continued command below :
+          # a trailing backslash joins the comment line and swallows arguments.
+          xcodebuild archive \
+            -project Plainfile.xcodeproj \
+            -scheme Plainfile \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/devid.xcarchive" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+          test -d "$RUNNER_TEMP/devid.xcarchive"
+
+      - name: Export Developer ID .app
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions-devid.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>developer-id</string>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Developer ID Application</string>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/devid.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-devid.plist" \
+            -exportPath "$RUNNER_TEMP/devid-export"
+          ls -la "$RUNNER_TEMP/devid-export"
+
+      - name: Notarize & staple
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEY_FILE="$RUNNER_TEMP/AuthKey.p8"
+          echo "$ASC_KEY_BASE64" | base64 --decode > "$KEY_FILE"
+
+          APP="$RUNNER_TEMP/devid-export/${PRODUCT_NAME}.app"
+          test -d "$APP"
+
+          ZIP="$RUNNER_TEMP/notarize.zip"
+          /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
+
+          xcrun notarytool submit "$ZIP" \
+            --key "$KEY_FILE" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait
+
+          xcrun stapler staple "$APP"
+
+      - name: Zip notarized .app
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/devid-export/${PRODUCT_NAME}.app"
+          /usr/bin/ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/Plainfile.zip"
+
+      - name: Install dmgbuild
+        run: |
+          set -euo pipefail
+          pipx install dmgbuild
+          # pipx's bin dir is on PATH in this step but not guaranteed in later ones.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Create, sign & notarize DMG
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/devid-export/${PRODUCT_NAME}.app"
+          DMG="$RUNNER_TEMP/Plainfile.dmg"
+
+          # Styled drag-to-install window: app on the left, /Applications on the
+          # right, annotated background behind them. See scripts/make-dmg.sh.
+          VOLUME_NAME="$PRODUCT_NAME" ./scripts/make-dmg.sh "$APP" "$DMG"
+
+          codesign --sign "Developer ID Application" --timestamp "$DMG"
+
+          KEY_FILE="$RUNNER_TEMP/AuthKey.p8"
+          echo "$ASC_KEY_BASE64" | base64 --decode > "$KEY_FILE"
+          xcrun notarytool submit "$DMG" \
+            --key "$KEY_FILE" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Plainfile-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/Plainfile.zip
+            ${{ runner.temp }}/Plainfile.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            ${{ runner.temp }}/Plainfile.dmg
+            ${{ runner.temp }}/Plainfile.zip
+          generate_release_notes: true
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
+
+  # ---------------------------------------------------------------------------
+  # Mac App Store upload : gated to manual dispatch or version tags.
+  # ---------------------------------------------------------------------------
+  app-store:
+    name: Upload to App Store Connect
+    runs-on: macos-26
+    timeout-minutes: 40
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Select latest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Import signing certificates
+        env:
+          DIST_CERT_BASE64: ${{ secrets.DIST_CERT_BASE64 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+          INSTALLER_CERT_BASE64: ${{ secrets.INSTALLER_CERT_BASE64 }}
+          INSTALLER_CERT_PASSWORD: ${{ secrets.INSTALLER_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          DIST_P12="$RUNNER_TEMP/dist.p12"
+          INSTALLER_P12="$RUNNER_TEMP/installer.p12"
+
+          echo "$DIST_CERT_BASE64"      | base64 --decode > "$DIST_P12"
+          echo "$INSTALLER_CERT_BASE64" | base64 --decode > "$INSTALLER_P12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          security import "$DIST_P12" -P "$DIST_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+          security import "$INSTALLER_P12" -P "$INSTALLER_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security find-identity -v "$KEYCHAIN"
+
+      - name: Install provisioning profile
+        env:
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          PROFILE="$RUNNER_TEMP/app.provisionprofile"
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+
+          PLIST="$RUNNER_TEMP/profile.plist"
+          security cms -D -i "$PROFILE" > "$PLIST"
+          UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$PLIST")
+
+          cp "$PROFILE" "$PROFILES_DIR/$UUID.provisionprofile"
+          echo "PROFILE_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "Installed provisioning profile: $NAME ($UUID)"
+
+      - name: Archive (Release, Apple Distribution)
+        run: |
+          set -euo pipefail
+          # Build number = workflow run number, so every upload to App Store
+          # Connect has a higher CFBundleVersion than the one before.
+          # NOTE: keep comments out of the line-continued command below :
+          # a trailing backslash joins the comment line and swallows arguments.
+          xcodebuild archive \
+            -project Plainfile.xcodeproj \
+            -scheme Plainfile \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/Plainfile.xcarchive" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+          test -d "$RUNNER_TEMP/Plainfile.xcarchive"
+
+      # Note: xcodebuild -exportArchive (method app-store) requires the installer
+      # certificate to be embedded in the provisioning profile, but the Apple
+      # Developer portal UI can't create such profiles (only Xcode-managed
+      # profiles embed both certs). App Store Connect does NOT require this :
+      # it only needs the .app signed with the distribution cert + profile and
+      # the .pkg signed with the installer cert. So we package the already-
+      # signed .app from the archive directly with productbuild instead.
+      - name: Build signed .pkg for the App Store
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Plainfile.xcarchive/Products/Applications/${PRODUCT_NAME}.app"
+          test -d "$APP"
+          test -f "$APP/Contents/embedded.provisionprofile"
+
+          INSTALLER_IDENTITY=$(security find-identity -v "$RUNNER_TEMP/build.keychain-db" \
+            | grep -oE '"(3rd Party Mac Developer Installer|Mac Installer Distribution)[^"]*"' \
+            | head -1 | tr -d '"')
+          test -n "$INSTALLER_IDENTITY"
+          echo "Signing pkg with: $INSTALLER_IDENTITY"
+
+          mkdir -p "$RUNNER_TEMP/export"
+          productbuild \
+            --component "$APP" /Applications \
+            --sign "$INSTALLER_IDENTITY" \
+            "$RUNNER_TEMP/export/${PRODUCT_NAME}.pkg"
+          ls -la "$RUNNER_TEMP/export"
+
+      - name: Upload to App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEYS_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEYS_DIR"
+          echo "$ASC_KEY_BASE64" | base64 --decode > "$KEYS_DIR/AuthKey_${ASC_KEY_ID}.p8"
+
+          PKG="$RUNNER_TEMP/export/${PRODUCT_NAME}.pkg"
+          test -f "$PKG"
+
+          xcrun altool --upload-app \
+            --type macos \
+            --file "$PKG" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true

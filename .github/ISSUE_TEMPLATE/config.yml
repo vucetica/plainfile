@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and discussion
+    url: https://github.com/vucetica/plainfile/discussions
+    about: For "how do I…" questions, ideas, and open-ended discussion, please use Discussions instead of opening an issue.
+  - name: Security issue
+    url: https://github.com/vucetica/plainfile/blob/main/SECURITY.md
+    about: Please report security issues privately instead of opening a public issue. See SECURITY.md for details.

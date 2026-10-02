@@ -1,0 +1,84 @@
+name: Bug report
+description: Report something that isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please include enough information to reproduce it.
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: e.g. macOS 26.1
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Plainfile version
+      description: Find this under the Plainfile menu, then About Plainfile.
+      placeholder: e.g. 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: How did you install it?
+      options:
+        - Mac App Store
+        - Downloaded from GitHub Releases (DMG)
+        - Built from source
+    validations:
+      required: true
+  - type: dropdown
+    id: file-type
+    attributes:
+      label: What kind of file were you editing?
+      multiple: true
+      options:
+        - Plain text
+        - Markdown (rich text view)
+        - Markdown (source view)
+        - CSV or TSV (table view)
+        - CSV or TSV (source view)
+        - Source code
+        - Not related to a file
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: If the problem depends on a file, attach a small sample file that shows it (remove anything private first).
+      placeholder: |
+        1. Open a file ...
+        2. Click ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or recording (optional)
+      description: Drag and drop here. This is often the fastest way to show a UI problem.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and didn't find a duplicate.
+          required: true

@@ -22,3 +22,6 @@ xcuserdata/
 # Editors
 *.swp
 *.swo
+
+# Swift Package Manager checkouts
+Packages/
