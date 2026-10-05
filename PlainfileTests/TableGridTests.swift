@@ -270,6 +270,8 @@ struct TableGridTests {
         let visible = h.tableView.rows(in: h.tableView.visibleRect).length
         let rowViews = h.tableView.subviews.filter { $0 is NSTableRowView }.count
         #expect(rowViews <= visible + 10, "row views are reused, got \(rowViews) for \(visible) visible rows")
-        #expect(elapsed < .seconds(1.5))
+        // About 0.7 s on an Apple silicon Mac and 1.7 s on a shared CI runner. The limit
+        // only catches a large regression; the row view count above is the main check.
+        #expect(elapsed < .seconds(4))
     }
 }
