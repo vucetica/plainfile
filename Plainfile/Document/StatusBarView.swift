@@ -253,7 +253,7 @@ private struct TableStats: View {
 /// Symbol for a status bar button. SF Symbols have different heights (the minus glyph
 /// is much shorter than the plus), and a bordered button sizes itself to its label, so
 /// every icon gets the same frame to keep the buttons the same height.
-private func barIcon(_ name: String) -> some View {
+func barIcon(_ name: String) -> some View {
     Image(systemName: name)
         .frame(width: 16, height: 14)
 }
