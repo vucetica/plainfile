@@ -2,7 +2,7 @@
 
 // Renders the DMG installer window background.
 //
-// The design is a warm paper gradient with a teal arrow that arcs from the app
+// The design is a warm paper gradient with a blue arrow that arcs from the app
 // icon to the Applications folder, and a short label under the drop target.
 //
 // Run via scripts/build-dmg-background.sh, which also packs the 1x and 2x
@@ -46,7 +46,7 @@ func color(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {
 
 let paperTop = color(0xFDFBF7)
 let paperBottom = color(0xF1EAE0)
-let inkTeal = color(0x0F8F8A)
+let inkBlue = color(0x3B7AED)
 let labelColor = color(0x4A5A5C)
 
 // MARK: - Drawing
@@ -60,13 +60,13 @@ func drawArrowAnnotation(in ctx: CGContext) {
 
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: 1), blur: 3,
-                  color: inkTeal.withAlphaComponent(0.22).cgColor)
+                  color: inkBlue.withAlphaComponent(0.22).cgColor)
 
     let shaft = CGMutablePath()
     shaft.move(to: start)
     shaft.addCurve(to: end, control1: control1, control2: control2)
     ctx.addPath(shaft)
-    ctx.setStrokeColor(inkTeal.cgColor)
+    ctx.setStrokeColor(inkBlue.cgColor)
     ctx.setLineWidth(6)
     ctx.setLineCap(.round)
     ctx.strokePath()
@@ -87,7 +87,7 @@ func drawArrowAnnotation(in ctx: CGContext) {
                       control: CGPoint(x: -headLength + 7, y: 0))
     head.closeSubpath()
     ctx.addPath(head)
-    ctx.setFillColor(inkTeal.cgColor)
+    ctx.setFillColor(inkBlue.cgColor)
     ctx.fillPath()
 
     ctx.restoreGState()

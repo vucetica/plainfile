@@ -5,9 +5,9 @@
 // Writes icon-1024.png (the master icon) and og-image.png (1200x630) into the
 // folder. scripts/build-app-icon.sh turns the master into every icon size.
 //
-// The design is a placeholder: a teal macOS-style rounded square with a white
-// page that has a folded corner. The page shows a heading line, text lines, and
-// a small table, which stand for the three kinds of files Plainfile edits.
+// The design is a placeholder: a blue rounded square that fills the canvas,
+// with a white page that has a folded corner. The page shows a heading line,
+// text lines, and a small table, which stand for the three kinds of files Plainfile edits.
 
 import AppKit
 
@@ -18,12 +18,13 @@ guard arguments.count == 2 else {
 }
 let outputFolder = URL(fileURLWithPath: arguments[1], isDirectory: true)
 
-let tealLight = NSColor(srgbRed: 0.20, green: 0.70, blue: 0.67, alpha: 1)
-let tealDark = NSColor(srgbRed: 0.04, green: 0.42, blue: 0.42, alpha: 1)
-let ink = NSColor(srgbRed: 0.06, green: 0.45, blue: 0.44, alpha: 1)
-let inkSoft = NSColor(srgbRed: 0.70, green: 0.80, blue: 0.80, alpha: 1)
+// The tile uses the same diagonal blue gradient as the ScreenSnipe icon.
+let blueDark = NSColor(srgbRed: 0.19, green: 0.43, blue: 0.87, alpha: 1)
+let blueLight = NSColor(srgbRed: 0.31, green: 0.64, blue: 0.97, alpha: 1)
+let ink = NSColor(srgbRed: 0.17, green: 0.40, blue: 0.84, alpha: 1)
+let inkSoft = NSColor(srgbRed: 0.74, green: 0.81, blue: 0.92, alpha: 1)
 let paper = NSColor(srgbRed: 0.995, green: 0.99, blue: 0.98, alpha: 1)
-let fold = NSColor(srgbRed: 0.86, green: 0.90, blue: 0.90, alpha: 1)
+let fold = NSColor(srgbRed: 0.86, green: 0.90, blue: 0.96, alpha: 1)
 
 /// Renders `draw` into a bitmap of the given pixel size and saves it as PNG.
 func render(width: Int, height: Int, to url: URL, draw: (CGContext) -> Void) {
@@ -48,22 +49,12 @@ func drawIcon(in cg: CGContext, origin: CGPoint, scale: CGFloat) {
     cg.translateBy(x: origin.x, y: origin.y)
     cg.scaleBy(x: scale, y: scale)
 
-    // macOS icon grid: the rounded square is 824pt wide inside the 1024pt canvas.
-    let tile = CGRect(x: 100, y: 100, width: 824, height: 824)
-    let tilePath = NSBezierPath(roundedRect: tile, xRadius: 185, yRadius: 185)
+    // Like the ScreenSnipe icon, the rounded square fills the whole canvas.
+    let tile = CGRect(x: 0, y: 0, width: 1024, height: 1024)
+    let tilePath = NSBezierPath(roundedRect: tile, xRadius: 228, yRadius: 228)
 
-    // Soft drop shadow under the tile.
-    NSGraphicsContext.saveGraphicsState()
-    let shadow = NSShadow()
-    shadow.shadowColor = NSColor.black.withAlphaComponent(0.28)
-    shadow.shadowOffset = NSSize(width: 0, height: -12)
-    shadow.shadowBlurRadius = 28
-    shadow.set()
-    tealDark.setFill()
-    tilePath.fill()
-    NSGraphicsContext.restoreGraphicsState()
-
-    NSGradient(starting: tealLight, ending: tealDark)!.draw(in: tilePath, angle: -90)
+    // Darker in the top-left corner, lighter in the bottom-right corner.
+    NSGradient(starting: blueDark, ending: blueLight)!.draw(in: tilePath, angle: -45)
 
     // Page with a folded top-right corner.
     let page = CGRect(x: 262, y: 196, width: 500, height: 632)
@@ -120,7 +111,7 @@ func drawIcon(in cg: CGContext, origin: CGPoint, scale: CGFloat) {
     bar(left, 586, 372, 20, inkSoft)
     bar(left, 546, 300, 20, inkSoft)
 
-    // A small table: header row in teal, then two rows of cells.
+    // A small table: header row in blue, then two rows of cells.
     let tableTop: CGFloat = 470
     let cellWidth: CGFloat = 112
     let cellGap: CGFloat = 14
