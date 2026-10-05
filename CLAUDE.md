@@ -73,7 +73,7 @@ xcodebuild -project Plainfile.xcodeproj -scheme Plainfile -destination 'platform
 - The folder must be named `docs/`, because GitHub Pages only accepts `/` or `/docs` as a source on `main`
 - `docs/CNAME` holds the custom domain, and `docs/.nojekyll` turns off Jekyll processing
 - `docs/privacy.html` is the privacy policy at https://plainfile.app/privacy. The App Store record links to it, so update it whenever the app starts to handle data differently
-- Teal accent (`#0f8f8a`, darker `#0b6f6b`) on a warm neutral background, with a dark mode through `prefers-color-scheme`
+- Blue accent (`#3b7aed`, darker `#2563eb`) that matches the app icon and the ScreenSnipe website, on a warm neutral background, with a dark mode through `prefers-color-scheme`
 - SEO: Open Graph, Twitter Card, structured data (JSON-LD), favicon and apple-touch-icon
 - The Mac App Store button points to `#download` until the app is approved. The `APP_STORE_URL` comment in `docs/index.html` marks where the real link goes
 
