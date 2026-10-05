@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Reorder columns in CSV and TSV files.** Drag a column header to a new place, or use Move Left and Move Right. The new order is saved to the file and can be undone.
+- **Copy rows and cells into spreadsheets.** Command-C copies the selected rows. Right-click a row to copy one cell, or to copy the rows together with the header row. The copy holds both tab-separated text and an HTML table, so pasting into Excel, Numbers, Google Sheets or Google Docs puts every value in its own cell.
+- **Column menu on the header.** Right-click a column header to rename, insert, move or delete that column. The column menu in the status bar also has Move Left and Move Right.
+
+### Fixed
+- Adding, deleting or renaming a column no longer clears the sort. When a column is deleted, the sort and the column widths stay with the columns they belong to.
+
 ## [1.0.1] - 2026-10-05
 
 ### Changed

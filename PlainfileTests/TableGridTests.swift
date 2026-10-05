@@ -208,6 +208,169 @@ struct TableGridTests {
         #expect(h.tableView.tableColumns.map(\.title) == ["#", "qty", "price", "X"])
     }
 
+    @Test func moveColumnReordersCellsAndHeaders() {
+        let h = makeHarness()
+        let undo = UndoManager()
+        h.model.undoManager = undo
+        h.model.moveColumn(from: 2, to: 0)
+        h.sync()
+        #expect(h.tableView.tableColumns.map(\.title) == ["#", "price", "name", "qty"])
+        #expect(cellText(h, column: 1, row: 0) == "1.20")
+        #expect(cellText(h, column: 2, row: 0) == "Apple")
+        #expect(DelimitedText.serialize(h.model.table).hasPrefix("price,name,qty\n1.20,Apple,3"))
+
+        #expect(undo.undoActionName == "Move Column")
+        undo.undo()
+        h.sync()
+        #expect(h.tableView.tableColumns.map(\.title) == ["#", "name", "qty", "price"])
+        #expect(cellText(h, column: 1, row: 0) == "Apple")
+    }
+
+    @Test func reorderKeepsSortAndWidths() {
+        let h = makeHarness()
+        h.model.sortOrder = [CellComparator(column: 1, order: .forward)]
+        h.sync()
+        h.tableView.tableColumns[2].width = 230
+        h.model.moveColumn(from: 1, to: 2)
+        h.sync()
+        #expect(h.tableView.tableColumns.map(\.title) == ["#", "name", "price", "qty"])
+        #expect(h.model.sortOrder == [CellComparator(column: 2, order: .forward)])
+        #expect(h.tableView.sortDescriptors.first?.key == "col:2")
+        #expect(h.tableView.tableColumns[3].width == 230)
+        #expect(h.tableView.tableColumns[2].width == 160)
+    }
+
+    @Test func insertAndDeleteShiftSortAndWidths() {
+        let h = makeHarness()
+        h.model.sortOrder = [CellComparator(column: 2, order: .reverse)]
+        h.sync()
+        h.tableView.tableColumns[3].width = 210
+
+        h.model.deleteColumn(0)
+        h.sync()
+        #expect(h.model.sortOrder == [CellComparator(column: 1, order: .reverse)])
+        #expect(h.model.visibleRows.map { $0.cells[1] } == ["2.50", "1.20", "0.80"])
+        #expect(h.tableView.tableColumns[2].title == "price")
+        #expect(h.tableView.tableColumns[2].width == 210)
+
+        h.model.insertColumn(named: "A", at: 0)
+        h.sync()
+        #expect(h.model.sortOrder == [CellComparator(column: 2, order: .reverse)])
+        #expect(h.tableView.tableColumns.map(\.title) == ["#", "A", "qty", "price"])
+        #expect(h.tableView.tableColumns[3].width == 210)
+
+        h.model.deleteColumn(2)
+        #expect(h.model.sortOrder.isEmpty, "deleting the sorted column drops the sort")
+    }
+
+    @Test func dragReorderUpdatesModel() {
+        let h = makeHarness()
+        #expect(!h.coordinator.tableView(h.tableView, shouldReorderColumn: 0, toColumn: 2))
+        #expect(!h.coordinator.tableView(h.tableView, shouldReorderColumn: 2, toColumn: 0))
+        #expect(h.coordinator.tableView(h.tableView, shouldReorderColumn: 1, toColumn: 3))
+
+        h.tableView.moveColumn(1, toColumn: 3)
+        h.coordinator.tableView(h.tableView, didDrag: h.tableView.tableColumns[3])
+        h.sync()
+        #expect(h.model.table.columns == ["qty", "price", "name"])
+        #expect(h.tableView.tableColumns.map(\.identifier.rawValue) == ["rownum", "col:0", "col:1", "col:2"])
+        #expect(cellText(h, column: 3, row: 0) == "Apple")
+    }
+
+    @Test func dragReorderWithDuplicateTitles() {
+        let h = makeHarness("a,a\n1,2\n")
+        h.tableView.moveColumn(2, toColumn: 1)
+        h.coordinator.tableView(h.tableView, didDrag: h.tableView.tableColumns[1])
+        h.sync()
+        #expect(h.model.table.rows[0].cells == ["2", "1"])
+        #expect(cellText(h, column: 1, row: 0) == "2")
+        #expect(cellText(h, column: 2, row: 0) == "1")
+    }
+
+    @Test func headerContextMenu() throws {
+        let h = makeHarness()
+        let first = try #require(h.coordinator.columnMenu(for: 0))
+        #expect(first.items.map(\.title) == ["Rename…", "Insert Column Left", "Insert Column Right", "", "Move Left", "Move Right", "", "Delete Column…"])
+        #expect(!first.items[4].isEnabled)
+        #expect(first.items[5].isEnabled)
+        let last = try #require(h.coordinator.columnMenu(for: 2))
+        #expect(last.items[4].isEnabled)
+        #expect(!last.items[5].isEnabled)
+
+        h.coordinator.moveColumnRight(first.items[5])
+        #expect(h.model.table.columns == ["qty", "name", "price"])
+        h.coordinator.insertColumnLeft(first.items[1])
+        #expect(h.model.table.columns == ["Column 4", "qty", "name", "price"])
+        h.coordinator.renameColumn(first.items[0])
+        #expect(h.model.pendingRename?.id == 0)
+        h.coordinator.deleteColumn(first.items[7])
+        #expect(h.model.pendingDelete?.id == 0)
+
+        let single = makeHarness("only\n1\n")
+        let menu = try #require(single.coordinator.columnMenu(for: 0))
+        #expect(!menu.items[7].isEnabled)
+        #expect(!menu.items[4].isEnabled && !menu.items[5].isEnabled)
+    }
+
+    private func copyHarness() -> (Harness, NSPasteboard) {
+        let h = makeHarness()
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("PlainfileTests.\(UUID().uuidString)"))
+        h.coordinator.pasteboard = pasteboard
+        return (h, pasteboard)
+    }
+
+    @Test func commandCopyWritesSelectedRows() {
+        let (h, pasteboard) = copyHarness()
+        defer { pasteboard.releaseGlobally() }
+        h.tableView.selectRowIndexes(IndexSet([0, 2]), byExtendingSelection: false)
+        #expect(h.tableView.validateUserInterfaceItem(NSMenuItem(title: "Copy", action: #selector(GridTableView.copy(_:)), keyEquivalent: "c")))
+        h.tableView.copy(nil)
+        #expect(pasteboard.string(forType: .string) == "Apple\t3\t1.20\nFig\t7\t2.50")
+        #expect(pasteboard.string(forType: .html) == "<meta charset=\"utf-8\"><table><tr><td>Apple</td><td>3</td><td>1.20</td></tr><tr><td>Fig</td><td>7</td><td>2.50</td></tr></table>")
+
+        h.tableView.deselectAll(nil)
+        #expect(!h.tableView.validateUserInterfaceItem(NSMenuItem(title: "Copy", action: #selector(GridTableView.copy(_:)), keyEquivalent: "c")))
+    }
+
+    @Test func copyFollowsSortAndColumnOrder() {
+        let (h, pasteboard) = copyHarness()
+        defer { pasteboard.releaseGlobally() }
+        h.model.sortOrder = [CellComparator(column: 1, order: .reverse)]
+        h.model.moveColumn(from: 2, to: 0)
+        h.sync()
+        h.tableView.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+        h.tableView.copy(nil)
+        #expect(pasteboard.string(forType: .string) == "0.80\tPear\t12\n2.50\tFig\t7")
+    }
+
+    @Test func copyMenuItems() throws {
+        let (h, pasteboard) = copyHarness()
+        defer { pasteboard.releaseGlobally() }
+        h.tableView.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+
+        let menu = try #require(h.coordinator.rowMenu(for: 1, column: 2))
+        #expect(Array(menu.items.map(\.title).prefix(3)) == ["Copy Cell", "Copy Rows", "Copy Rows with Header"])
+
+        h.coordinator.copyCell(menu.items[0])
+        #expect(pasteboard.string(forType: .string) == "0.80")
+        #expect(pasteboard.string(forType: .html) == nil)
+
+        h.coordinator.copyRowsWithHeader(menu.items[2])
+        #expect(pasteboard.string(forType: .string) == "name\tqty\tprice\nApple\t3\t1.20\nPear\t12\t0.80")
+        #expect(pasteboard.string(forType: .html)?.contains("<tr><th>name</th><th>qty</th><th>price</th></tr>") == true)
+
+        // A row outside the selection copies only that row.
+        let other = try #require(h.coordinator.rowMenu(for: 2))
+        h.coordinator.copyRows(other.items[0])
+        #expect(pasteboard.string(forType: .string) == "Fig\t7\t2.50")
+    }
+
+    @Test func clipboardFormatsKeepAwkwardCellsTogether() {
+        let rows = [["a\tb", "line 1\nline 2", "say \"hi\""], ["<b>&", "", "plain"]]
+        #expect(DelimitedText.clipboardText(rows) == "\"a\tb\"\t\"line 1\nline 2\"\t\"say \"\"hi\"\"\"\n<b>&\t\tplain")
+        #expect(DelimitedText.clipboardHTML(rows) == "<meta charset=\"utf-8\"><table><tr><td>a\tb</td><td>line 1<br>line 2</td><td>say &quot;hi&quot;</td></tr><tr><td>&lt;b&gt;&amp;</td><td></td><td>plain</td></tr></table>")
+    }
+
     @Test func deleteKeyRemovesSelection() throws {
         let h = makeHarness()
         h.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
@@ -224,10 +387,10 @@ struct TableGridTests {
     @Test func contextMenus() throws {
         let h = makeHarness()
         let rowMenu = try #require(h.coordinator.rowMenu(for: 0))
-        #expect(rowMenu.items.map(\.title) == ["Insert Row Above", "Insert Row Below", "Duplicate Row", "", "Delete Row"])
+        #expect(rowMenu.items.map(\.title) == ["Copy Row", "Copy Row with Header", "", "Insert Row Above", "Insert Row Below", "Duplicate Row", "", "Delete Row"])
         #expect(h.scrollView.menu?.items.map(\.title) == ["Add Row", "Add Column…"])
 
-        let insertAbove = rowMenu.items[0]
+        let insertAbove = rowMenu.items[3]
         h.coordinator.insertRowAbove(insertAbove)
         h.sync()
         #expect(h.model.table.rows.count == 4)
