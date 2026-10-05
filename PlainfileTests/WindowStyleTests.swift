@@ -17,7 +17,7 @@ struct WindowStyleTests {
         #expect(window.styleMask.contains(.titled))
     }
 
-    @Test func tableScrollViewHasNoPocketWithoutFullSizeContentView() {
+    @Test func tableScrollPocketStaysBelowTitleBar() {
         let model = TableModel(table: DelimitedText.parse("a,b\n1,2\n", delimiter: ",", hasHeaderRow: true))
         let coordinator = TableGridCoordinator(model: model)
         let scrollView = coordinator.makeScrollView()
@@ -28,11 +28,17 @@ struct WindowStyleTests {
         coordinator.apply(columns: model.columnInfos, generation: model.generation, selection: [], sortOrder: [])
         window.contentView?.layoutSubtreeIfNeeded()
         scrollView.displayIfNeeded()
-        func hasPocket(_ view: NSView) -> Bool {
-            if String(describing: type(of: view)) == "NSScrollPocket", view.frame.height > 0 { return true }
-            return view.subviews.contains { hasPocket($0) }
+        // macOS 26 adds a pocket for the table header even in a plain window, which is
+        // fine. What must not happen is a pocket taller than the header, because that
+        // extra part sits under the title bar and mirrors content into it.
+        func pockets(_ view: NSView) -> [NSView] {
+            let own = String(describing: type(of: view)) == "NSScrollPocket" && view.frame.height > 0 ? [view] : []
+            return own + view.subviews.flatMap(pockets)
         }
-        #expect(!hasPocket(scrollView), "AppKit added a scroll pocket above the table")
+        let headerHeight = coordinator.tableView.headerView?.frame.height ?? 0
+        for pocket in pockets(scrollView) {
+            #expect(pocket.frame.height <= headerHeight + 1, "scroll pocket \(pocket.frame) reaches above the table header (\(headerHeight)pt)")
+        }
         #expect(scrollView.contentInsets.top == 0)
     }
 }

@@ -7,6 +7,7 @@ import SwiftUI
 /// never overlap. The bar used to draw the mode picker as a centered overlay, which
 /// landed on top of the table controls on narrow windows.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct StatusBarLayoutTests {
 
     private struct Host {
@@ -33,8 +34,13 @@ struct StatusBarLayoutTests {
         let (document, model) = makeDocument(csv: csv)
         let hosting = NSHostingView(rootView: StatusBarView(document: document, tableModel: model))
         hosting.frame = NSRect(x: 0, y: 0, width: width, height: 28)
+        // The bar is added as a subview with sizing options off, the way it sits inside
+        // the document window. As the window's content view it would resize the window
+        // to its own fitting size, and on macOS 26 that feedback loops through
+        // ViewThatFits until AppKit gives up on constraint passes.
+        hosting.sizingOptions = []
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = hosting
+        window.contentView?.addSubview(hosting)
         hosting.layoutSubtreeIfNeeded()
         try? await Task.sleep(for: .milliseconds(80))
         hosting.layoutSubtreeIfNeeded()
@@ -44,10 +50,14 @@ struct StatusBarLayoutTests {
     /// One frame per control, in window coordinates. SwiftUI draws most controls itself
     /// on this OS, but it keeps one direct child view per control under the hosting view
     /// (focus ring views and platform view hosts), which is enough to measure layout.
+    /// SwiftUI can also add a keyboard focus proxy with exactly the same frame as its
+    /// control, so views with identical frames count as one control.
     private func controls(in root: NSView) -> [(NSView, NSRect)] {
-        root.subviews
+        var seen = Set<String>()
+        return root.subviews
             .filter { !$0.isHidden && $0.frame.width > 0 }
             .map { ($0, $0.convert($0.bounds, to: nil)) }
+            .filter { seen.insert(NSStringFromRect($0.1.integral)).inserted }
     }
 
     @Test(arguments: [true, false])
@@ -86,14 +96,18 @@ struct StatusBarLayoutTests {
     }
 
     /// The plus, minus and column buttons sit side by side and must be the same height,
-    /// even though their symbols are not.
-    @Test func iconButtonsShareOneHeight() async {
-        let h = await host(csv: true, width: 1300)
-        let rings = controls(in: h.hosting).filter { String(describing: type(of: $0.0)).contains("FocusRing") }
-        let firstThree = rings.sorted { $0.1.minX < $1.1.minX }.prefix(3)
-        #expect(firstThree.count == 3)
-        let heights = Set(firstThree.map { $0.1.height })
-        #expect(heights.count == 1, "button heights differ: \(firstThree.map { $0.1 })")
+    /// even though their symbols are not. Measures the buttons themselves rather than
+    /// AppKit's private helper views, which differ between macOS versions.
+    @Test func iconButtonsShareOneHeight() {
+        func height(_ symbol: String) -> CGFloat {
+            let button = Button(action: {}) { barIcon(symbol) }
+                .controlSize(.small)
+                .font(.system(size: 11))
+            let hosting = NSHostingView(rootView: button)
+            return hosting.fittingSize.height
+        }
+        let heights = ["plus", "minus", "tablecells", "ellipsis.circle"].map(height)
+        #expect(Set(heights).count == 1, "button heights differ: \(heights)")
     }
 
     @Test func pickersFoldIntoOverflowMenuWhenNarrow() async {
