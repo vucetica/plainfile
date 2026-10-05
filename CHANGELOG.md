@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-05
+
+### Changed
+- **New app icon.** The icon now has a blue background that fills the whole icon, and the page on it uses blue lines.
+- **Website and installer colors.** The website and the DMG install window now use the same blue as the icon.
+
 ## [1.0.0] - 2026-10-01
 
 This is the first public release of Plainfile.
@@ -23,5 +29,6 @@ This is the first public release of Plainfile.
 - **Native document behavior** through the system document architecture: autosave, versions, Open Recent and rename.
 - **Help > Open Sample Files** opens one sample each of plain text, Markdown, CSV and C# as tabs, so you can try every mode.
 
-[Unreleased]: https://github.com/vucetica/plainfile/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/vucetica/plainfile/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/vucetica/plainfile/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/vucetica/plainfile/releases/tag/v1.0.0
