@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-06
+
+### Added
+- **Split editor.** Drag the bar at the top of the editor down to show the same file in two panes, one above the other. Each pane has its own view, so you can keep the rich text or the table in one pane and the source in the other. The view switch in the status bar changes the pane you last clicked in. Drag the bar between the panes to resize them, and drag it to the top or bottom edge (or double-click it) to close the split. View > Split Editor and View > Remove Split do the same from the menu.
+- **The selection follows between views.** Text you select in the rich text view is selected in the Markdown source, and the other way round. Rows you select in a table are selected as lines in the source, and lines you select in the source select their rows. When the two panes of a split show different views, the other pane selects the same text right away and scrolls to it. Switching a pane between views also keeps the selection.
+
+### Fixed
+- Undo and Redo in the source and rich text views now also change the saved file. Before, the text on screen changed back, but the document could keep the edit that was undone.
+
 ## [1.0.3] - 2026-10-06
 
 ### Fixed
@@ -44,7 +53,8 @@ This is the first public release of Plainfile.
 - **Native document behavior** through the system document architecture: autosave, versions, Open Recent and rename.
 - **Help > Open Sample Files** opens one sample each of plain text, Markdown, CSV and C# as tabs, so you can try every mode.
 
-[Unreleased]: https://github.com/vucetica/plainfile/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/vucetica/plainfile/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/vucetica/plainfile/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/vucetica/plainfile/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/vucetica/plainfile/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/vucetica/plainfile/compare/v1.0.0...v1.0.1

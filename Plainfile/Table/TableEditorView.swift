@@ -4,23 +4,52 @@ import SwiftUI
 /// filter controls live in the status bar and share the same `TableModel`.
 struct TableEditorView: View {
     @ObservedObject var document: PlainDocument
+    let pane: EditorPane
     @Bindable var model: TableModel
+    /// The selection made in another pane.
+    var linkedSelection: LinkedSelection?
     @State private var lastLoadedVersion: Int
+    @State private var reloadTask: Task<Void, Never>?
+    @State private var pendingSelection: [NSRange]?
     @Environment(\.undoManager) private var undoManager
 
-    init(document: PlainDocument, model: TableModel) {
+    init(document: PlainDocument, pane: EditorPane, model: TableModel, linkedSelection: LinkedSelection? = nil) {
         self.document = document
+        self.pane = pane
         self.model = model
+        self.linkedSelection = linkedSelection
         _lastLoadedVersion = State(initialValue: document.textVersion)
     }
 
     var body: some View {
         tableView
-            .onAppear { wire() }
+            .onAppear {
+                wire()
+                if !pane.lastSourceSelection.isEmpty { applySourceSelection(pane.lastSourceSelection) }
+            }
             .onChange(of: document.textVersion) { _, version in
                 guard version != lastLoadedVersion else { return }
-                lastLoadedVersion = version
-                model.reload(from: DelimitedText.parse(document.text, delimiter: document.delimiter, hasHeaderRow: document.hasHeaderRow))
+                // A pane that is not being edited follows the other pane's typing at a
+                // slower pace, so a large table is not parsed on every key press.
+                let layout = document.layout
+                if !layout.isSplit || layout.activePaneID == pane.id {
+                    reload()
+                } else if reloadTask == nil {
+                    reloadTask = Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(150))
+                        reloadTask = nil
+                        guard !Task.isCancelled else { return }
+                        reload()
+                    }
+                }
+            }
+            .onChange(of: linkedSelection) { _, linked in
+                guard let linked, linked.applies(to: pane) else { return }
+                if reloadTask != nil || document.textVersion != lastLoadedVersion {
+                    pendingSelection = linked.ranges
+                } else {
+                    applySourceSelection(linked.ranges)
+                }
             }
             .onChange(of: document.delimiter) { _, delimiter in
                 if delimiter != model.table.delimiter { model.setDelimiter(delimiter) }
@@ -62,8 +91,40 @@ struct TableEditorView: View {
             columns: model.columnInfos,
             generation: model.generation,
             selection: model.selection,
-            sortOrder: model.sortOrder
+            sortOrder: model.sortOrder,
+            revealRequest: model.revealRequest
         )
+    }
+
+    private func reload() {
+        reloadTask?.cancel()
+        reloadTask = nil
+        lastLoadedVersion = document.textVersion
+        let text = document.text
+        model.reload(from: DelimitedText.parse(text, delimiter: document.delimiter, hasHeaderRow: document.hasHeaderRow))
+        model.updateSourceRanges(for: text)
+        // Undo steps recorded here would put back a table from before the change.
+        undoManager?.removeAllActions(withTarget: model)
+        if let ranges = pendingSelection {
+            pendingSelection = nil
+            applySourceSelection(ranges)
+        }
+    }
+
+    /// Selects the rows that hold the given source ranges and scrolls to the first.
+    private func applySourceSelection(_ ranges: [NSRange]) {
+        pane.lastSourceSelection = ranges
+        model.selectAndReveal(model.rowIDs(touching: ranges))
+    }
+
+    /// Shares the user's selection in the grid with the other pane.
+    private func publish(_ ranges: [NSRange]) {
+        let layout = document.layout
+        if layout.isSplit {
+            layout.publishSelection(ranges, from: pane)
+        } else {
+            pane.lastSourceSelection = ranges
+        }
     }
 
     private func wire() {
@@ -76,11 +137,19 @@ struct TableEditorView: View {
                 let text = DelimitedText.serialize(table)
                 document.replaceText(text)
                 lastLoadedVersion = document.textVersion
+                model.updateSourceRanges(for: document.text)
                 if document.hasHeaderRow != table.hasHeaderRow { document.hasHeaderRow = table.hasHeaderRow }
                 if document.delimiter != table.delimiter { document.delimiter = table.delimiter }
             }
         }
-        document.tableHandler = { command in
+        model.onFocus = { document.layout.activate(pane) }
+        model.onUserSelectionChange = {
+            publish(model.sourceRanges(forRows: model.selection))
+        }
+        model.onBeginEditingCell = { rowID, column in
+            if let range = model.sourceRange(forCell: rowID, column: column) { publish([range]) }
+        }
+        pane.tableHandler = { command in
             switch command {
             case .addRow: model.addRow()
             case .deleteSelectedRows: model.deleteSelectedRows()
@@ -98,7 +167,7 @@ struct TableEditorView: View {
             case .clearSort: model.sortOrder = []
             }
         }
-        document.formatHandler = nil
-        document.flushPendingEdits = nil
+        pane.formatHandler = nil
+        pane.flushPendingEdits = nil
     }
 }

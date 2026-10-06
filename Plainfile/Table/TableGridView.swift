@@ -9,6 +9,7 @@ struct TableGridView: NSViewRepresentable {
     let generation: Int
     let selection: Set<UUID>
     let sortOrder: [CellComparator]
+    var revealRequest = 0
 
     func makeCoordinator() -> TableGridCoordinator {
         TableGridCoordinator(model: model)
@@ -16,11 +17,11 @@ struct TableGridView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = context.coordinator.makeScrollView()
-        context.coordinator.apply(columns: columns, generation: generation, selection: selection, sortOrder: sortOrder)
+        context.coordinator.apply(columns: columns, generation: generation, selection: selection, sortOrder: sortOrder, revealRequest: revealRequest)
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        context.coordinator.apply(columns: columns, generation: generation, selection: selection, sortOrder: sortOrder)
+        context.coordinator.apply(columns: columns, generation: generation, selection: selection, sortOrder: sortOrder, revealRequest: revealRequest)
     }
 }

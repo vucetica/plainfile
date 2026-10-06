@@ -14,6 +14,15 @@ final class CodeTextView: NSTextView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// Called when the view becomes first responder, so its pane becomes the active one.
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocus?() }
+        return accepted
+    }
+
     // MARK: Typing behaviour
 
     override func insertTab(_ sender: Any?) {
