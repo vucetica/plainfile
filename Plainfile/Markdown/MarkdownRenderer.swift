@@ -32,7 +32,18 @@ final class MarkdownRenderer {
         var link: String? = nil
     }
 
+    private var locator: SourceLocator?
+    private var source: NSString = ""
+
     func render(_ markdown: String) -> NSAttributedString {
+        renderMapped(markdown).text
+    }
+
+    /// Renders the Markdown and records which source range each rendered run came from.
+    func renderMapped(_ markdown: String) -> (text: NSAttributedString, map: MarkdownSourceMap) {
+        locator = SourceLocator(markdown)
+        source = markdown as NSString
+        defer { locator = nil; source = "" }
         let document = Document(parsing: markdown)
         let out = NSMutableAttributedString()
         for child in document.children {
@@ -41,7 +52,72 @@ final class MarkdownRenderer {
         if out.length == 0 {
             out.append(NSAttributedString(string: "", attributes: style.bodyAttributes()))
         }
-        return out
+        let map = MarkdownSourceMap.extract(from: out)
+        return (out, map)
+    }
+
+    // MARK: Source ranges
+
+    private func sourceRange(_ node: Markup) -> NSRange? {
+        locator?.range(node.range)
+    }
+
+    /// An empty source range at the end of `node`, for the line break that ends a block.
+    private func sourceEnd(_ node: Markup) -> NSRange? {
+        sourceRange(node).map { NSRange(location: $0.upperBound, length: 0) }
+    }
+
+    private func sourceStart(_ node: Markup) -> NSRange? {
+        sourceRange(node).map { NSRange(location: $0.location, length: 0) }
+    }
+
+    private func tagged(_ attrs: [NSAttributedString.Key: Any], _ range: NSRange?) -> [NSAttributedString.Key: Any] {
+        guard let range else { return attrs }
+        var attrs = attrs
+        attrs[.pfSourceRange] = NSValue(range: range)
+        return attrs
+    }
+
+    private func tag(_ string: NSMutableAttributedString, _ range: NSRange?) {
+        guard let range, string.length > 0 else { return }
+        string.addAttribute(.pfSourceRange, value: NSValue(range: range), range: NSRange(location: 0, length: string.length))
+    }
+
+    /// The source of an inline code span without its backticks.
+    private func codeSpanRange(_ code: InlineCode) -> NSRange? {
+        guard let range = sourceRange(code), range.upperBound <= source.length else { return nil }
+        var ticks = 0
+        while ticks < range.length / 2, source.character(at: range.location + ticks) == 0x60 { ticks += 1 }
+        let inner = NSRange(location: range.location + ticks, length: range.length - 2 * ticks)
+        // A single space inside the ticks on both sides is stripped by the parser.
+        if inner.length >= 2, (code.code as NSString).length == inner.length - 2,
+           source.character(at: inner.location) == 0x20, source.character(at: inner.upperBound - 1) == 0x20 {
+            return NSRange(location: inner.location + 1, length: inner.length - 2)
+        }
+        return inner
+    }
+
+    /// The source of a code block's body: the lines between the fences, or the whole
+    /// block for an indented code block.
+    private func codeBodyRange(_ code: CodeBlock) -> NSRange? {
+        guard let range = sourceRange(code), range.upperBound <= source.length, range.length > 0 else { return nil }
+        let block = source.substring(with: range)
+        let trimmed = block.drop { $0 == " " }
+        guard trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") else { return range }
+        let firstLine = source.lineRange(for: NSRange(location: range.location, length: 0))
+        let bodyStart = min(firstLine.upperBound, range.upperBound)
+        var bodyEnd = range.upperBound
+        // Drop the closing fence line when there is one.
+        if bodyEnd > bodyStart {
+            let lastLine = source.lineRange(for: NSRange(location: bodyEnd - 1, length: 0))
+            let lastText = source.substring(with: lastLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            if lastLine.location >= bodyStart, lastText.hasPrefix("```") || lastText.hasPrefix("~~~") {
+                bodyEnd = lastLine.location
+            }
+        }
+        // Without the final line break, which the rendered code also drops.
+        if bodyEnd > bodyStart, source.character(at: bodyEnd - 1) == 0x0A { bodyEnd -= 1 }
+        return NSRange(location: bodyStart, length: max(0, bodyEnd - bodyStart))
     }
 
     // MARK: Blocks
@@ -56,7 +132,7 @@ final class MarkdownRenderer {
             let content = NSMutableAttributedString()
             if let listMarker { content.append(listMarker) }
             for child in paragraph.children { renderInline(child, into: content, base: attrs, inline: InlineStyle()) }
-            content.append(NSAttributedString(string: "\n", attributes: attrs))
+            content.append(NSAttributedString(string: "\n", attributes: tagged(attrs, sourceEnd(paragraph))))
             applyParagraphStyle(p, to: content)
             out.append(content)
 
@@ -68,7 +144,7 @@ final class MarkdownRenderer {
             let content = NSMutableAttributedString()
             for child in heading.children { renderInline(child, into: content, base: attrs, inline: InlineStyle()) }
             attrs[.pfHeadingLevel] = level
-            content.append(NSAttributedString(string: "\n", attributes: attrs))
+            content.append(NSAttributedString(string: "\n", attributes: tagged(attrs, sourceEnd(heading))))
             applyParagraphStyle(p, to: content)
             out.append(content)
 
@@ -80,6 +156,10 @@ final class MarkdownRenderer {
             if text.hasSuffix("\n") { text.removeLast() }
             if text.isEmpty { text = " " }
             let rendered = NSMutableAttributedString(string: text + "\n", attributes: attrs)
+            if let body = codeBodyRange(code) {
+                rendered.addAttribute(.pfSourceRange, value: NSValue(range: body), range: NSRange(location: 0, length: rendered.length - 1))
+                rendered.addAttribute(.pfSourceRange, value: NSValue(range: NSRange(location: sourceRange(code)?.upperBound ?? body.upperBound, length: 0)), range: NSRange(location: rendered.length - 1, length: 1))
+            }
             Self.highlight(rendered, language: code.language)
             out.append(rendered)
 
@@ -90,7 +170,7 @@ final class MarkdownRenderer {
             if children.isEmpty {
                 var attrs = style.bodyAttributes()
                 attrs[.paragraphStyle] = paragraphStyle(base: style.bodyParagraphStyle(), context: ctx)
-                out.append(NSAttributedString(string: "\n", attributes: attrs))
+                out.append(NSAttributedString(string: "\n", attributes: tagged(attrs, sourceEnd(quote))))
             }
             for (i, child) in children.enumerated() {
                 renderBlock(child, into: out, context: ctx, listMarker: i == 0 ? listMarker : nil)
@@ -109,14 +189,19 @@ final class MarkdownRenderer {
             p.minimumLineHeight = 2
             p.maximumLineHeight = 2
             let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 2), .paragraphStyle: p, .pfThematicBreak: true, .foregroundColor: NSColor.clear]
-            out.append(NSAttributedString(string: "\u{00A0}\n", attributes: attrs))
+            out.append(NSAttributedString(string: "\u{00A0}\n", attributes: tagged(attrs, sourceRange(node))))
 
         case let html as HTMLBlock:
             let p = paragraphStyle(base: style.bodyParagraphStyle(), context: context)
             let attrs: [NSAttributedString.Key: Any] = [.font: style.codeFont, .foregroundColor: style.secondaryColor, .paragraphStyle: p, .pfRaw: true]
             var text = html.rawHTML
             if text.hasSuffix("\n") { text.removeLast() }
-            out.append(NSAttributedString(string: text + "\n", attributes: attrs))
+            var htmlRange = sourceRange(html)
+            if let r = htmlRange, r.length > 0, r.upperBound <= source.length, source.character(at: r.upperBound - 1) == 0x0A {
+                htmlRange = NSRange(location: r.location, length: r.length - 1)
+            }
+            out.append(NSAttributedString(string: text, attributes: tagged(attrs, htmlRange)))
+            out.append(NSAttributedString(string: "\n", attributes: tagged(attrs, sourceEnd(html))))
 
         case let table as Markdown.Table:
             renderTable(table, into: out, context: context)
@@ -134,9 +219,9 @@ final class MarkdownRenderer {
             if let inline = node as? InlineMarkup {
                 renderInline(inline, into: content, base: attrs, inline: InlineStyle())
             } else {
-                content.append(NSAttributedString(string: node.format(), attributes: attrs))
+                content.append(NSAttributedString(string: node.format(), attributes: tagged(attrs, sourceRange(node))))
             }
-            content.append(NSAttributedString(string: "\n", attributes: attrs))
+            content.append(NSAttributedString(string: "\n", attributes: tagged(attrs, sourceEnd(node))))
             applyParagraphStyle(p, to: content)
             out.append(content)
         }
@@ -168,13 +253,13 @@ final class MarkdownRenderer {
             } else {
                 markerText = list.marker(forItemNumber: number)
             }
-            let marker = NSMutableAttributedString(string: "\t" + markerText + "\t", attributes: markerAttrs)
+            let marker = NSMutableAttributedString(string: "\t" + markerText + "\t", attributes: tagged(markerAttrs, sourceStart(item)))
             let children = Array(item.children)
             let position = ListPosition(first: i == 0, last: i == items.count - 1)
             if children.isEmpty {
                 let p = paragraphStyle(base: style.bodyParagraphStyle(), context: ctx, listPosition: position)
                 let m = NSMutableAttributedString(attributedString: marker)
-                m.append(NSAttributedString(string: "\n", attributes: style.bodyAttributes()))
+                m.append(NSAttributedString(string: "\n", attributes: tagged(style.bodyAttributes(), sourceEnd(item))))
                 applyParagraphStyle(p, to: m)
                 out.append(m)
                 continue
@@ -240,7 +325,7 @@ final class MarkdownRenderer {
                 for child in cell.children { renderInline(child, into: content, base: attrs, inline: InlineStyle(bold: header)) }
             }
             attrs[.paragraphStyle] = p
-            content.append(NSAttributedString(string: "\n", attributes: attrs))
+            content.append(NSAttributedString(string: "\n", attributes: tagged(attrs, cell.flatMap { sourceEnd($0) })))
             applyParagraphStyle(p, to: content)
             out.append(content)
         }
@@ -257,7 +342,7 @@ final class MarkdownRenderer {
         // A table must be followed by a normal paragraph so the caret can leave it.
         var attrs = style.bodyAttributes()
         attrs[.paragraphStyle] = paragraphStyle(base: style.bodyParagraphStyle(), context: context)
-        out.append(NSAttributedString(string: "\n", attributes: attrs))
+        out.append(NSAttributedString(string: "\n", attributes: tagged(attrs, sourceEnd(table))))
     }
 
     private func paragraphStyle(base: NSMutableParagraphStyle, context: BlockContext, keepBlocks: Bool = false, listPosition: ListPosition? = nil) -> NSMutableParagraphStyle {
@@ -281,7 +366,7 @@ final class MarkdownRenderer {
     private func renderInline(_ node: Markup, into out: NSMutableAttributedString, base: [NSAttributedString.Key: Any], inline: InlineStyle) {
         switch node {
         case let text as Markdown.Text:
-            out.append(NSAttributedString(string: text.string, attributes: attributes(base: base, inline: inline)))
+            out.append(NSAttributedString(string: text.string, attributes: tagged(attributes(base: base, inline: inline), sourceRange(text))))
         case let emphasis as Emphasis:
             var s = inline; s.italic = true
             for child in emphasis.children { renderInline(child, into: out, base: base, inline: s) }
@@ -293,35 +378,34 @@ final class MarkdownRenderer {
             for child in strike.children { renderInline(child, into: out, base: base, inline: s) }
         case let code as InlineCode:
             var s = inline; s.code = true
-            out.append(NSAttributedString(string: code.code, attributes: attributes(base: base, inline: s)))
+            out.append(NSAttributedString(string: code.code, attributes: tagged(attributes(base: base, inline: s), codeSpanRange(code))))
         case let link as Markdown.Link:
             var s = inline; s.link = link.destination ?? ""
             let children = Array(link.children)
             if children.isEmpty {
-                out.append(NSAttributedString(string: link.destination ?? "", attributes: attributes(base: base, inline: s)))
+                out.append(NSAttributedString(string: link.destination ?? "", attributes: tagged(attributes(base: base, inline: s), sourceRange(link))))
             } else {
                 for child in children { renderInline(child, into: out, base: base, inline: s) }
             }
         case let image as Markdown.Image:
             renderImage(image, into: out, base: base, inline: inline)
-        case is SoftBreak:
-            out.append(NSAttributedString(string: " ", attributes: attributes(base: base, inline: inline)))
-        case is LineBreak:
-            out.append(NSAttributedString(string: "\u{2028}", attributes: attributes(base: base, inline: inline)))
+        case is SoftBreak, is LineBreak:
+            let string = node is SoftBreak ? " " : "\u{2028}"
+            out.append(NSAttributedString(string: string, attributes: tagged(attributes(base: base, inline: inline), sourceRange(node))))
         case let html as InlineHTML:
             var attrs = attributes(base: base, inline: inline)
             attrs[.pfRaw] = true
             attrs[.font] = style.codeFont
             attrs[.foregroundColor] = style.secondaryColor
-            out.append(NSAttributedString(string: html.rawHTML, attributes: attrs))
+            out.append(NSAttributedString(string: html.rawHTML, attributes: tagged(attrs, sourceRange(html))))
         case let symbol as SymbolLink:
             var s = inline; s.code = true
-            out.append(NSAttributedString(string: symbol.destination ?? "", attributes: attributes(base: base, inline: s)))
+            out.append(NSAttributedString(string: symbol.destination ?? "", attributes: tagged(attributes(base: base, inline: s), sourceRange(symbol))))
         default:
             if let container = node as? InlineContainer {
                 for child in container.children { renderInline(child, into: out, base: base, inline: inline) }
             } else {
-                out.append(NSAttributedString(string: node.format(), attributes: attributes(base: base, inline: inline)))
+                out.append(NSAttributedString(string: node.format(), attributes: tagged(attributes(base: base, inline: inline), sourceRange(node))))
             }
         }
     }
@@ -330,7 +414,7 @@ final class MarkdownRenderer {
         let source = image.source ?? ""
         let alt = image.plainText
         let reference = ImageReference(source: source, alt: alt, title: image.title)
-        var attrs = attributes(base: base, inline: inline)
+        var attrs = tagged(attributes(base: base, inline: inline), sourceRange(image))
         attrs[.pfImage] = reference
 
         if let url = resolve(source), let nsImage = NSImage(contentsOf: url), nsImage.size.width > 0 {

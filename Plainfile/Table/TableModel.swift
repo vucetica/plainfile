@@ -66,8 +66,22 @@ final class TableModel {
     /// Incremented whenever the visible rows change. The grid reloads when it moves.
     private(set) var generation = 0
 
+    /// Where each row's record sits in the document text, set by `updateSourceRanges`.
+    @ObservationIgnored private(set) var rowSourceRanges: [UUID: NSRange] = [:]
+    /// Where each field of a row sits in the document text.
+    @ObservationIgnored private(set) var fieldSourceRanges: [UUID: [NSRange]] = [:]
+
     weak var undoManager: UndoManager?
     var onChange: ((DelimitedTable) -> Void)?
+    /// Called after the user changes the row selection in the grid.
+    @ObservationIgnored var onUserSelectionChange: (() -> Void)?
+    /// Called when the grid becomes first responder.
+    @ObservationIgnored var onFocus: (() -> Void)?
+    /// Called when the user starts editing a cell.
+    @ObservationIgnored var onBeginEditingCell: ((UUID, Int) -> Void)?
+    /// Bumped to ask the grid to scroll `revealRowID` into view.
+    private(set) var revealRequest = 0
+    @ObservationIgnored private(set) var revealRowID: UUID?
     /// Called when columns are inserted, deleted or moved, with a map from each old
     /// column index to its new index (`nil` for a deleted column).
     var onColumnsRemapped: (((Int) -> Int?) -> Void)?
@@ -106,6 +120,69 @@ final class TableModel {
     func reload(from newTable: DelimitedTable) {
         table = newTable
         rebuildVisible()
+    }
+
+    // MARK: Source ranges
+
+    /// Records where each row lives in `text`, which must be the text this table was
+    /// parsed from or serialized to.
+    func updateSourceRanges(for text: String) {
+        let records = DelimitedText.recordRanges(text, delimiter: table.delimiter)
+        let offset = table.hasHeaderRow ? 1 : 0
+        var rows: [UUID: NSRange] = [:]
+        var fields: [UUID: [NSRange]] = [:]
+        rows.reserveCapacity(table.rows.count)
+        for (i, row) in table.rows.enumerated() where i + offset < records.count {
+            rows[row.id] = records[i + offset].range
+            fields[row.id] = records[i + offset].fields
+        }
+        rowSourceRanges = rows
+        fieldSourceRanges = fields
+    }
+
+    /// The source ranges of the given rows, in file order. Rows next to each other
+    /// become one range that includes the line break between them.
+    func sourceRanges(forRows ids: Set<UUID>) -> [NSRange] {
+        let ranges = ids.compactMap { rowSourceRanges[$0] }.sorted { $0.location < $1.location }
+        var merged: [NSRange] = []
+        for range in ranges {
+            if let last = merged.last, range.location <= last.upperBound + 1 {
+                merged[merged.count - 1] = NSUnionRange(last, range)
+            } else {
+                merged.append(range)
+            }
+        }
+        return merged
+    }
+
+    func sourceRange(forCell rowID: UUID, column: Int) -> NSRange? {
+        guard let fields = fieldSourceRanges[rowID], column >= 0, column < fields.count else { return nil }
+        return fields[column]
+    }
+
+    /// The rows whose records touch any of `ranges`, in file order. A caret at the
+    /// end of a line counts for that line.
+    func rowIDs(touching ranges: [NSRange]) -> [UUID] {
+        guard !ranges.isEmpty else { return [] }
+        return table.rows.compactMap { row in
+            guard let record = rowSourceRanges[row.id] else { return nil }
+            let touches = ranges.contains { range in
+                if range.length == 0 { return record.location <= range.location && range.location <= record.upperBound }
+                if record.length == 0 { return range.location <= record.location && record.location < range.upperBound }
+                return NSIntersectionRange(range, record).length > 0
+            }
+            return touches ? row.id : nil
+        }
+    }
+
+    /// Selects rows chosen outside the grid and scrolls the first one into view.
+    func selectAndReveal(_ ids: [UUID]) {
+        let set = Set(ids)
+        if selection != set { selection = set }
+        if let first = ids.first {
+            revealRowID = first
+            revealRequest &+= 1
+        }
     }
 
     // MARK: Mutation with undo

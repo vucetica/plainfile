@@ -4,10 +4,13 @@ import AppKit
 /// WYSIWYG Markdown editor. Edits are serialized back into `document.text`.
 struct RichMarkdownEditorView: NSViewRepresentable {
     @ObservedObject var document: PlainDocument
+    let pane: EditorPane
     var fileURL: URL?
     var settings: EditorSettings
+    /// The selection made in another pane. Passed in so a change runs `updateNSView`.
+    var linkedSelection: LinkedSelection?
 
-    func makeCoordinator() -> Coordinator { Coordinator(document: document) }
+    func makeCoordinator() -> Coordinator { Coordinator(document: document, pane: pane) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -19,6 +22,7 @@ struct RichMarkdownEditorView: NSViewRepresentable {
 
         let textView = RichTextView.make()
         textView.delegate = context.coordinator
+        textView.onFocus = { [weak coordinator = context.coordinator] in coordinator?.didFocus() }
         textView.backgroundColor = .textBackgroundColor
         let container = CenteredTextContainerView(textView: textView)
         container.frame = NSRect(origin: .zero, size: scrollView.contentSize)
@@ -26,7 +30,10 @@ struct RichMarkdownEditorView: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.apply(settings: settings, to: textView)
         context.coordinator.load(fileURL: fileURL)
+        context.coordinator.appliedLinkedVersion = linkedSelection?.version
         context.coordinator.installHandlers()
+        context.coordinator.restoreSelection()
+        context.coordinator.observeEdits(of: textView.textStorage!)
         return scrollView
     }
 
@@ -34,12 +41,21 @@ struct RichMarkdownEditorView: NSViewRepresentable {
         let coordinator = context.coordinator
         guard let textView = coordinator.textView else { return }
         coordinator.document = document
+        coordinator.pane = pane
         coordinator.fileURL = fileURL
         coordinator.undoManager = context.environment.undoManager
         coordinator.apply(settings: settings, to: textView)
-        if document.textVersion != coordinator.lastPushedVersion {
-            coordinator.load(fileURL: fileURL)
+        if let linkedSelection, linkedSelection.version != coordinator.appliedLinkedVersion {
+            coordinator.appliedLinkedVersion = linkedSelection.version
+            if linkedSelection.applies(to: pane) { coordinator.pendingSelection = linkedSelection.ranges }
         }
+        if document.textVersion != coordinator.lastPushedVersion {
+            // A pane that is not being edited follows the other pane's typing at a
+            // slower pace, so Markdown is not rendered again on every key press.
+            let layout = document.layout
+            coordinator.reload(immediately: !layout.isSplit || layout.activePaneID == pane.id)
+        }
+        coordinator.applyPendingSelection()
         coordinator.installHandlers()
     }
 
@@ -50,17 +66,57 @@ struct RichMarkdownEditorView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var document: PlainDocument
+        var pane: EditorPane
         var fileURL: URL?
         weak var textView: RichTextView?
         var undoManager: UndoManager?
         var lastPushedVersion = 0
+        var appliedLinkedVersion: Int?
+        /// A selection from another pane, waiting for a pending reload.
+        var pendingSelection: [NSRange]?
         private var appliedSettings: EditorSettings?
         private var syncTask: Task<Void, Never>?
+        private var reloadTask: Task<Void, Never>?
         private var dirty = false
         private var isLoading = false
+        private var isApplyingSelection = false
 
-        init(document: PlainDocument) {
+        // The source map belongs to `renderedText`, a rendering of `document.text`.
+        // While the rich text is edited the two drift apart, and `TextAlignment`
+        // bridges the difference.
+        private var sourceMap = MarkdownSourceMap(entries: [])
+        private var renderedText: NSString = ""
+        private var renderedMatchesView = true
+        private var sourceMapIsStale = false
+
+        nonisolated(unsafe) private var editObserver: NSObjectProtocol?
+
+        init(document: PlainDocument, pane: EditorPane) {
             self.document = document
+            self.pane = pane
+        }
+
+        deinit {
+            if let editObserver { NotificationCenter.default.removeObserver(editObserver) }
+        }
+
+        /// Schedules a sync for every edit. Edits are watched on the text storage
+        /// because undo and redo change it without the text view's `textDidChange`.
+        func observeEdits(of storage: NSTextStorage) {
+            editObserver = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.storageDidProcessEditing() }
+            }
+        }
+
+        private func storageDidProcessEditing() {
+            guard !isLoading else { return }
+            renderedMatchesView = false
+            scheduleSync()
+            updateStatus()
+        }
+
+        func didFocus() {
+            document.layout.activate(pane)
         }
 
         func apply(settings: EditorSettings, to textView: RichTextView) {
@@ -85,9 +141,15 @@ struct RichMarkdownEditorView: NSViewRepresentable {
 
         func load(fileURL: URL?) {
             guard let textView, let storage = textView.textStorage else { return }
+            reloadTask?.cancel()
+            reloadTask = nil
             isLoading = true
             let renderer = MarkdownRenderer(style: textView.style, baseURL: fileURL)
-            let rendered = renderer.render(document.text)
+            let (rendered, map) = renderer.renderMapped(document.text)
+            sourceMap = map
+            renderedText = rendered.string as NSString
+            renderedMatchesView = true
+            sourceMapIsStale = false
             let selection = textView.selectedRange()
             storage.beginEditing()
             storage.setAttributedString(rendered)
@@ -103,14 +165,102 @@ struct RichMarkdownEditorView: NSViewRepresentable {
         }
 
         func installHandlers() {
-            document.flushPendingEdits = { [weak self] in self?.flush() }
-            document.formatHandler = { [weak self] command in self?.handleFormat(command) }
-            document.tableHandler = nil
+            pane.flushPendingEdits = { [weak self] in self?.flush() }
+            pane.formatHandler = { [weak self] command in self?.handleFormat(command) }
+            pane.tableHandler = nil
         }
 
         func uninstallHandlers() {
-            document.flushPendingEdits = nil
-            document.formatHandler = nil
+            pane.flushPendingEdits = nil
+            pane.formatHandler = nil
+        }
+
+        // MARK: Selection sync
+
+        /// Reloads now, or within 150 ms when `immediately` is false. Later changes
+        /// during the wait are picked up by the same reload.
+        func reload(immediately: Bool) {
+            if immediately {
+                load(fileURL: fileURL)
+                return
+            }
+            guard reloadTask == nil else { return }
+            reloadTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled, let self else { return }
+                self.reloadTask = nil
+                if self.document.textVersion != self.lastPushedVersion { self.load(fileURL: self.fileURL) }
+                self.applyPendingSelection()
+            }
+        }
+
+        func applyPendingSelection() {
+            guard reloadTask == nil, let ranges = pendingSelection else { return }
+            pendingSelection = nil
+            applySourceSelection(ranges, reveal: true)
+        }
+
+        private func refreshSourceMapIfNeeded() {
+            guard sourceMapIsStale, let textView else { return }
+            sourceMapIsStale = false
+            let (rendered, map) = MarkdownRenderer(style: textView.style, baseURL: fileURL).renderMapped(document.text)
+            sourceMap = map
+            renderedText = rendered.string as NSString
+            renderedMatchesView = renderedText.isEqual(to: textView.string)
+        }
+
+        /// The source ranges of rich text ranges.
+        func sourceRanges(for ranges: [NSRange]) -> [NSRange] {
+            guard let textView else { return [] }
+            refreshSourceMapIfNeeded()
+            let alignment = renderedMatchesView ? nil : TextAlignment(from: textView.string as NSString, to: renderedText)
+            return ranges.map { sourceMap.sourceRange(forRendered: alignment?.map($0) ?? $0) }
+        }
+
+        /// The rich text ranges of source ranges.
+        func renderedRanges(for ranges: [NSRange]) -> [NSRange] {
+            guard let textView else { return [] }
+            refreshSourceMapIfNeeded()
+            let alignment = renderedMatchesView ? nil : TextAlignment(from: renderedText, to: textView.string as NSString)
+            let length = (textView.string as NSString).length
+            return CodeEditorView.Coordinator.clamped(ranges.map { r in
+                let rendered = sourceMap.renderedRange(forSource: r)
+                return alignment?.map(rendered) ?? rendered
+            }, to: length)
+        }
+
+        func applySourceSelection(_ ranges: [NSRange], reveal: Bool) {
+            guard let textView, !ranges.isEmpty else { return }
+            let rendered = renderedRanges(for: ranges)
+            isApplyingSelection = true
+            textView.selectedRanges = rendered.map { NSValue(range: $0) }
+            isApplyingSelection = false
+            pane.lastSourceSelection = ranges
+            if reveal { textView.scrollRangeToVisible(rendered[0]) }
+            updateStatus()
+        }
+
+        /// Puts back the pane's selection when the editor is created. Waits a turn so
+        /// layout can scroll.
+        func restoreSelection() {
+            let ranges = pane.lastSourceSelection
+            guard !ranges.isEmpty else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.applySourceSelection(ranges, reveal: true)
+            }
+        }
+
+        /// Stores the selection in source coordinates, and shares it with the other pane
+        /// when the user made it here.
+        private func recordSelection() {
+            guard let textView else { return }
+            let ranges = sourceRanges(for: textView.selectedRanges.map(\.rangeValue))
+            let layout = document.layout
+            if layout.isSplit, textView.window?.firstResponder === textView {
+                layout.publishSelection(ranges, from: pane)
+            } else {
+                pane.lastSourceSelection = ranges
+            }
         }
 
         /// Serializes the rich text into the document immediately.
@@ -122,6 +272,9 @@ struct RichMarkdownEditorView: NSViewRepresentable {
             let markdown = MarkdownSerializer.serialize(storage)
             document.replaceText(markdown)
             lastPushedVersion = document.textVersion
+            // The source changed, so the selection's source ranges did too.
+            sourceMapIsStale = true
+            recordSelection()
         }
 
         private func scheduleSync() {
@@ -156,14 +309,10 @@ struct RichMarkdownEditorView: NSViewRepresentable {
 
         // MARK: NSTextViewDelegate
 
-        func textDidChange(_ notification: Notification) {
-            guard !isLoading else { return }
-            scheduleSync()
-            updateStatus()
-        }
-
         func textViewDidChangeSelection(_ notification: Notification) {
             updateStatus()
+            guard !isLoading, !isApplyingSelection else { return }
+            recordSelection()
         }
 
         func undoManager(for view: NSTextView) -> UndoManager? {
@@ -197,10 +346,10 @@ struct RichMarkdownEditorView: NSViewRepresentable {
                 lastStart = r.location + 1
                 i = r.location + 1
             }
-            document.status.line = line
-            document.status.column = sel.location - lastStart + 1
-            document.status.location = sel.location
-            document.status.selectionLength = sel.length
+            pane.status.line = line
+            pane.status.column = sel.location - lastStart + 1
+            pane.status.location = sel.location
+            pane.status.selectionLength = sel.length
             scheduleStatistics(for: tv.string)
         }
 
@@ -218,9 +367,9 @@ struct RichMarkdownEditorView: NSViewRepresentable {
                     (TextStatistics.count(text), TextStatistics.lineCount(text))
                 }.value
                 guard let self, self.statsGeneration == generation else { return }
-                self.document.status.characters = counts.characters
-                self.document.status.words = counts.words
-                self.document.status.lines = lines
+                self.pane.status.characters = counts.characters
+                self.pane.status.words = counts.words
+                self.pane.status.lines = lines
             }
         }
     }

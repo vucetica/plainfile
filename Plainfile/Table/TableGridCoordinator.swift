@@ -8,6 +8,13 @@ final class GridTableView: NSTableView {
     /// Builds the context menu for a row. The second value is the clicked column's
     /// position in `tableColumns`, or -1.
     var menuProvider: ((Int, Int) -> NSMenu?)?
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocus?() }
+        return accepted
+    }
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -114,6 +121,7 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     private var appliedGeneration = -1
     private var appliedColumnTitles: [String]?
     private var appliedSortOrder: [CellComparator] = []
+    private var appliedRevealRequest = 0
     private var isSyncingSelection = false
     private var isSyncingSort = false
     private var editingTarget: (rowID: UUID, column: Int)?
@@ -208,13 +216,14 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         scroll.usesPredominantAxisScrolling = true
         scroll.menu = backgroundMenu()
 
+        table.onFocus = { [weak self] in self?.model.onFocus?() }
         tableView = table
         scrollView = scroll
         return scroll
     }
 
     /// Pushes the model's current state into the table. Never writes to the model.
-    func apply(columns: [ColumnInfo], generation: Int, selection: Set<UUID>, sortOrder: [CellComparator]) {
+    func apply(columns: [ColumnInfo], generation: Int, selection: Set<UUID>, sortOrder: [CellComparator], revealRequest: Int = 0) {
         let titles = columns.map(\.title)
         if titles != appliedColumnTitles {
             // Removing the sorted column clears the table's sort descriptors. That is
@@ -238,6 +247,12 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             appliedGeneration = generation
         }
         syncSelection(selection)
+        if revealRequest != appliedRevealRequest {
+            appliedRevealRequest = revealRequest
+            if let id = model.revealRowID, let index = model.visibleIndexByID[id] {
+                tableView.scrollRowToVisible(index)
+            }
+        }
     }
 
     private func reconcileColumns(_ columns: [ColumnInfo]) {
@@ -341,6 +356,7 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         var selected = Set<UUID>()
         for index in tableView.selectedRowIndexes where index < rows.count { selected.insert(rows[index].id) }
         if selected != model.selection { model.selection = selected }
+        model.onUserSelectionChange?()
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
@@ -400,6 +416,7 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         tableView.scrollRowToVisible(row)
         tableView.editColumn(tableColumn, row: row, with: nil, select: true)
+        model.onBeginEditingCell?(model.visibleRows[row].id, column)
     }
 
     /// Visible row and model column of the cell a text field belongs to.
@@ -418,6 +435,7 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         guard let field = notification.object as? NSTextField, let p = position(of: field) else { return }
         editingTarget = (model.visibleRows[p.row].id, p.column)
         lastEditedColumn = p.column
+        model.onBeginEditingCell?(model.visibleRows[p.row].id, p.column)
     }
 
     func controlTextDidEndEditing(_ notification: Notification) {

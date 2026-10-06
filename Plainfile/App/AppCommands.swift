@@ -49,6 +49,8 @@ private struct ViewModeMenuItems: View {
             ObservedViewModeItems(document: document)
         } else {
             Button("Show Source") {}.disabled(true)
+            Divider()
+            Button("Split Editor") {}.disabled(true)
         }
     }
 }
@@ -80,6 +82,12 @@ private struct ObservedViewModeItems: View {
         } else {
             Button("Show Source") {}.disabled(true)
                 .keyboardShortcut("m", modifiers: [.command, .shift])
+        }
+        Divider()
+        if document.layout.isSplit {
+            Button("Remove Split") { document.layout.unsplit() }
+        } else {
+            Button("Split Editor") { document.layout.split(document: document) }
         }
     }
 }

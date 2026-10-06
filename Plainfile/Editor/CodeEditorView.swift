@@ -4,9 +4,12 @@ import AppKit
 /// Source editor for plain text, code, Markdown source and delimited text source.
 struct CodeEditorView: NSViewRepresentable {
     @ObservedObject var document: PlainDocument
+    let pane: EditorPane
     var settings: EditorSettings
+    /// The selection made in another pane. Passed in so a change runs `updateNSView`.
+    var linkedSelection: LinkedSelection?
 
-    func makeCoordinator() -> Coordinator { Coordinator(document: document) }
+    func makeCoordinator() -> Coordinator { Coordinator(document: document, pane: pane) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -43,6 +46,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.delegate = context.coordinator
         textView.string = document.text
+        textView.onFocus = { [weak coordinator = context.coordinator] in coordinator?.didFocus() }
 
         let theme = EditorTheme()
         textView.backgroundColor = theme.background
@@ -53,6 +57,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.highlighter = highlighter
         context.coordinator.textView = textView
         context.coordinator.lastPushedVersion = document.textVersion
+        context.coordinator.appliedLinkedVersion = linkedSelection?.version
 
         let ruler = LineNumberRulerView(textView: textView, scrollView: scrollView)
         ruler.highlighter = highlighter
@@ -66,6 +71,8 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.installHandlers()
         highlighter.rehighlightAll()
         context.coordinator.updateStatus()
+        context.coordinator.restoreSelection()
+        context.coordinator.observeEdits(of: textView.textStorage!)
         return scrollView
     }
 
@@ -73,6 +80,7 @@ struct CodeEditorView: NSViewRepresentable {
         let coordinator = context.coordinator
         guard let textView = coordinator.textView, let highlighter = coordinator.highlighter else { return }
         coordinator.document = document
+        coordinator.pane = pane
         coordinator.undoManager = context.environment.undoManager
 
         if highlighter.language != document.language {
@@ -81,17 +89,13 @@ struct CodeEditorView: NSViewRepresentable {
         coordinator.apply(settings: settings, to: textView, scrollView: scrollView, force: false)
 
         if document.textVersion != coordinator.lastPushedVersion {
-            // The text was changed elsewhere (table editor, rich editor, revert).
-            coordinator.lastPushedVersion = document.textVersion
-            if textView.string != document.text {
-                let selection = textView.selectedRange()
-                coordinator.isReloading = true
-                textView.string = document.text
-                coordinator.isReloading = false
-                let length = (document.text as NSString).length
-                let loc = min(selection.location, length)
-                textView.setSelectedRange(NSRange(location: loc, length: 0))
-                coordinator.updateStatus()
+            // The text was changed elsewhere (the other pane, revert).
+            coordinator.reloadText()
+        }
+        if let linkedSelection, linkedSelection.version != coordinator.appliedLinkedVersion {
+            coordinator.appliedLinkedVersion = linkedSelection.version
+            if linkedSelection.applies(to: pane) {
+                coordinator.applySourceSelection(linkedSelection.ranges, reveal: true)
             }
         }
         coordinator.installHandlers()
@@ -105,15 +109,100 @@ struct CodeEditorView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var document: PlainDocument
+        var pane: EditorPane
         weak var textView: CodeTextView?
         var highlighter: SyntaxHighlighter?
         var undoManager: UndoManager?
         var lastPushedVersion = 0
+        var appliedLinkedVersion: Int?
         var isReloading = false
+        private var isApplyingSelection = false
         private var appliedSettings: EditorSettings?
+        nonisolated(unsafe) private var editObserver: NSObjectProtocol?
 
-        init(document: PlainDocument) {
+        init(document: PlainDocument, pane: EditorPane) {
             self.document = document
+            self.pane = pane
+        }
+
+        deinit {
+            if let editObserver { NotificationCenter.default.removeObserver(editObserver) }
+        }
+
+        /// Pushes every text change to the document. Edits are watched on the text
+        /// storage because undo and redo change it without the text view's
+        /// `textDidChange`.
+        func observeEdits(of storage: NSTextStorage) {
+            editObserver = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.storageDidProcessEditing() }
+            }
+        }
+
+        private func storageDidProcessEditing() {
+            guard !isReloading, let storage = textView?.textStorage, storage.editedMask.contains(.editedCharacters) else { return }
+            document.replaceText(storage.string)
+            lastPushedVersion = document.textVersion
+            updateStatus()
+        }
+
+        // MARK: Text and selection sync
+
+        /// Brings in text changed elsewhere by replacing only the part that differs,
+        /// so the caret, the scroll position and the highlighting of the rest stay.
+        func reloadText() {
+            lastPushedVersion = document.textVersion
+            guard let tv = textView, let storage = tv.textStorage else { return }
+            let old = storage.string as NSString
+            let new = document.text as NSString
+            guard !old.isEqual(to: new as String) else { return }
+            let alignment = TextAlignment(from: old, to: new)
+            let selections = tv.selectedRanges.map { alignment.map($0.rangeValue) }
+            let changed = NSRange(location: alignment.prefix, length: old.length - alignment.prefix - alignment.suffix)
+            let replacement = new.substring(with: NSRange(location: alignment.prefix, length: new.length - alignment.prefix - alignment.suffix))
+            isReloading = true
+            storage.beginEditing()
+            storage.replaceCharacters(in: changed, with: replacement)
+            storage.endEditing()
+            tv.selectedRanges = Self.clamped(selections, to: new.length).map { NSValue(range: $0) }
+            isReloading = false
+            // Undo steps recorded here no longer match the text.
+            undoManager?.removeAllActions(withTarget: tv)
+            undoManager?.removeAllActions(withTarget: storage)
+            updateStatus()
+        }
+
+        static func clamped(_ ranges: [NSRange], to length: Int) -> [NSRange] {
+            let result = ranges.map { r -> NSRange in
+                let start = min(max(0, r.location), length)
+                return NSRange(location: start, length: min(max(0, r.length), length - start))
+            }
+            return result.isEmpty ? [NSRange(location: 0, length: 0)] : result
+        }
+
+        /// Selects source ranges chosen in another view, and optionally scrolls to them.
+        func applySourceSelection(_ ranges: [NSRange], reveal: Bool) {
+            guard let tv = textView, !ranges.isEmpty else { return }
+            let clamped = Self.clamped(ranges, to: (tv.string as NSString).length)
+            isApplyingSelection = true
+            tv.selectedRanges = clamped.map { NSValue(range: $0) }
+            isApplyingSelection = false
+            pane.lastSourceSelection = clamped
+            if reveal { tv.scrollRangeToVisible(clamped[0]) }
+            updateStatus()
+        }
+
+        /// Puts back the pane's selection when the editor is created, for example after
+        /// a mode switch or when a split opens. Waits a turn so layout can scroll.
+        func restoreSelection() {
+            let ranges = pane.lastSourceSelection
+            guard !ranges.isEmpty else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.applySourceSelection(ranges, reveal: true)
+            }
+        }
+
+        func didFocus() {
+            document.layout.activate(pane)
         }
 
         func apply(settings: EditorSettings, to textView: CodeTextView, scrollView: NSScrollView, force: Bool) {
@@ -173,13 +262,13 @@ struct CodeEditorView: NSViewRepresentable {
         // MARK: Handlers
 
         func installHandlers() {
-            document.formatHandler = { [weak self] command in self?.handleFormat(command) }
-            document.flushPendingEdits = nil
-            document.tableHandler = nil
+            pane.formatHandler = { [weak self] command in self?.handleFormat(command) }
+            pane.flushPendingEdits = nil
+            pane.tableHandler = nil
         }
 
         func uninstallHandlers() {
-            document.formatHandler = nil
+            pane.formatHandler = nil
         }
 
         private func handleFormat(_ command: FormatCommand) {
@@ -218,15 +307,16 @@ struct CodeEditorView: NSViewRepresentable {
 
         // MARK: NSTextViewDelegate
 
-        func textDidChange(_ notification: Notification) {
-            guard !isReloading, let tv = textView else { return }
-            document.replaceText(tv.string)
-            lastPushedVersion = document.textVersion
-            updateStatus()
-        }
-
         func textViewDidChangeSelection(_ notification: Notification) {
             updateStatus()
+            guard !isReloading, !isApplyingSelection, let tv = textView else { return }
+            let ranges = tv.selectedRanges.map(\.rangeValue)
+            let layout = document.layout
+            if layout.isSplit, tv.window?.firstResponder === tv {
+                layout.publishSelection(ranges, from: pane)
+            } else {
+                pane.lastSourceSelection = ranges
+            }
         }
 
         func undoManager(for view: NSTextView) -> UndoManager? {
@@ -241,7 +331,7 @@ struct CodeEditorView: NSViewRepresentable {
             let sel = tv.selectedRange()
             let line = highlighter.lineIndex(for: sel.location)
             let column = sel.location - highlighter.lineStarts[line]
-            let status = document.status
+            let status = pane.status
             status.line = line + 1
             status.column = column + 1
             status.location = sel.location
@@ -261,8 +351,8 @@ struct CodeEditorView: NSViewRepresentable {
                 guard !Task.isCancelled else { return }
                 let counts = await Task.detached(priority: .utility) { TextStatistics.count(text) }.value
                 guard let self, self.statsGeneration == generation else { return }
-                self.document.status.characters = counts.characters
-                self.document.status.words = counts.words
+                self.pane.status.characters = counts.characters
+                self.pane.status.words = counts.words
             }
         }
     }

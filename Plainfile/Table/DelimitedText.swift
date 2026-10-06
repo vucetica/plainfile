@@ -138,6 +138,74 @@ nonisolated enum DelimitedText {
         return records
     }
 
+    /// Where a record sits in the text, in UTF-16 units. `range` ends before the line
+    /// break, and each field range includes its quotes.
+    struct RecordRange: Sendable, Equatable {
+        var range: NSRange
+        var fields: [NSRange]
+    }
+
+    /// The source ranges of the records that `parseRecords` returns, in the same order.
+    static func recordRanges(_ text: String, delimiter: Character) -> [RecordRange] {
+        let units = Array(text.utf16)
+        let quote = UInt16(0x22), lf = UInt16(0x0A), cr = UInt16(0x0D)
+        let delimiterUnit = delimiter.utf16.first ?? 0x2C
+        var records: [RecordRange] = []
+        var fields: [NSRange] = []
+        var recordStart = 0
+        var fieldStart = 0
+        // Mirrors the parser: a field counts as non-empty once it has content.
+        var fieldHasContent = false
+        var inQuotes = false
+        var i = 0
+
+        func endField(at end: Int) {
+            fields.append(NSRange(location: fieldStart, length: end - fieldStart))
+            fieldHasContent = false
+        }
+        func endRecord(at end: Int) {
+            endField(at: end)
+            records.append(RecordRange(range: NSRange(location: recordStart, length: end - recordStart), fields: fields))
+            fields = []
+        }
+
+        while i < units.count {
+            let c = units[i]
+            if inQuotes {
+                if c == quote {
+                    if i + 1 < units.count, units[i + 1] == quote {
+                        fieldHasContent = true
+                        i += 2
+                        continue
+                    }
+                    inQuotes = false
+                } else {
+                    fieldHasContent = true
+                }
+                i += 1
+                continue
+            }
+            if c == quote, !fieldHasContent {
+                inQuotes = true
+            } else if c == delimiterUnit {
+                endField(at: i)
+                fieldStart = i + 1
+            } else if c == lf || c == cr {
+                endRecord(at: i)
+                if c == cr, i + 1 < units.count, units[i + 1] == lf { i += 1 }
+                recordStart = i + 1
+                fieldStart = i + 1
+            } else {
+                fieldHasContent = true
+            }
+            i += 1
+        }
+        if recordStart < units.count, fieldHasContent || !fields.isEmpty {
+            endRecord(at: units.count)
+        }
+        return records
+    }
+
     static func parse(_ text: String, delimiter: Character, hasHeaderRow: Bool) -> DelimitedTable {
         var records = parseRecords(text, delimiter: delimiter)
         // Drop trailing completely empty records produced by blank lines at the end.

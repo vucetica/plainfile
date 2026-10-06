@@ -80,7 +80,6 @@ final class PlainDocument: ReferenceFileDocument {
         var text: String
         var textVersion: Int = 0
         var language: Language
-        var viewMode: ViewMode
         var delimiter: Character
         var hasHeaderRow: Bool
         var encoding: String.Encoding
@@ -114,9 +113,13 @@ final class PlainDocument: ReferenceFileDocument {
             languageDidChange()
         }
     }
+    /// The view mode of the active pane.
     var viewMode: ViewMode {
-        get { read { $0.viewMode } }
-        set { write { $0.viewMode = newValue } }
+        get { layout.activePane.viewMode }
+        set {
+            objectWillChange.send()
+            layout.activePane.viewMode = newValue
+        }
     }
     var delimiter: Character {
         get { read { $0.delimiter } }
@@ -135,19 +138,27 @@ final class PlainDocument: ReferenceFileDocument {
         set { write { $0.lineEnding = newValue } }
     }
 
-    let status = EditorStatus()
+    /// The editor panes of the document's window.
+    let layout: EditorLayout
 
-    // MARK: Editor hooks (installed by whichever editor is on screen)
+    /// Live statistics of the active pane.
+    var status: EditorStatus { layout.activePane.status }
 
-    /// Called before the document is saved so a rich editor can write back pending edits.
-    var flushPendingEdits: (() -> Void)?
-    var formatHandler: ((FormatCommand) -> Void)?
-    var tableHandler: ((TableCommand) -> Void)?
+    // MARK: Editor hooks (installed by the editor each pane shows)
+
+    var formatHandler: ((FormatCommand) -> Void)? { layout.activePane.formatHandler }
+    var tableHandler: ((TableCommand) -> Void)? { layout.activePane.tableHandler }
+
+    /// Called before the document is saved so rich editors can write back pending edits.
+    func flushPendingEdits() {
+        for pane in layout.panes { pane.flushPendingEdits?() }
+    }
 
     // MARK: Init
 
     nonisolated init() {
-        state = Mutex(State(text: "", language: LanguageRegistry.plainText, viewMode: .source, delimiter: ",", hasHeaderRow: true, encoding: .utf8, lineEnding: .lf))
+        state = Mutex(State(text: "", language: LanguageRegistry.plainText, delimiter: ",", hasHeaderRow: true, encoding: .utf8, lineEnding: .lf))
+        layout = EditorLayout(viewMode: .source)
     }
 
     nonisolated init(configuration: ReadConfiguration) throws {
@@ -188,12 +199,12 @@ final class PlainDocument: ReferenceFileDocument {
         state = Mutex(State(
             text: normalized,
             language: language,
-            viewMode: PlainDocument.defaultViewMode(for: language),
             delimiter: delimiter,
             hasHeaderRow: true,
             encoding: decoded.encoding,
             lineEnding: lineEnding
         ))
+        layout = EditorLayout(viewMode: PlainDocument.defaultViewMode(for: language))
     }
 
     nonisolated static func defaultViewMode(for language: Language) -> ViewMode {
@@ -211,7 +222,7 @@ final class PlainDocument: ReferenceFileDocument {
     /// so it only touches the locked state. Pending rich text edits are flushed when possible.
     nonisolated func snapshot(contentType: UTType) throws -> DocumentSnapshot {
         if Thread.isMainThread {
-            MainActor.assumeIsolated { flushPendingEdits?() }
+            MainActor.assumeIsolated { flushPendingEdits() }
         }
         return state.withLock { DocumentSnapshot(text: $0.text, encoding: $0.encoding.rawValue, lineEnding: $0.lineEnding) }
     }
@@ -246,8 +257,8 @@ final class PlainDocument: ReferenceFileDocument {
             delimiter = DelimitedText.detectDelimiter(in: text)
         }
         let allowed = availableViewModes
-        if !allowed.contains(viewMode) {
-            viewMode = PlainDocument.defaultViewMode(for: language)
+        for pane in layout.panes where !allowed.contains(pane.viewMode) {
+            pane.viewMode = PlainDocument.defaultViewMode(for: language)
         }
     }
 
