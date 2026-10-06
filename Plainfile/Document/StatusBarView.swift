@@ -289,6 +289,10 @@ private struct TableControls: View {
                         model.pendingRename = column
                     }
                     Button("Insert Column After") { model.addColumn(after: column.id) }
+                    Button("Move Left") { model.moveColumn(from: column.id, to: column.id - 1) }
+                        .disabled(column.id == 0)
+                    Button("Move Right") { model.moveColumn(from: column.id, to: column.id + 1) }
+                        .disabled(column.id >= model.table.columns.count - 1)
                     Button("Sort Ascending") { model.sortOrder = [CellComparator(column: column.id, order: .forward)] }
                     Button("Sort Descending") { model.sortOrder = [CellComparator(column: column.id, order: .reverse)] }
                     Divider()

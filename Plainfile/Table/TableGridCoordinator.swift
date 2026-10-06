@@ -4,7 +4,10 @@ import AppKit
 final class GridTableView: NSTableView {
     var onBeginEdit: ((Int) -> Void)?
     var onDeleteRows: (() -> Void)?
-    var menuProvider: ((Int) -> NSMenu?)?
+    var onCopy: (() -> Void)?
+    /// Builds the context menu for a row. The second value is the clicked column's
+    /// position in `tableColumns`, or -1.
+    var menuProvider: ((Int, Int) -> NSMenu?)?
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -31,7 +34,42 @@ final class GridTableView: NSTableView {
         if !selectedRowIndexes.contains(row) {
             selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
-        return menuProvider?(row)
+        return menuProvider?(row, column(at: point))
+    }
+
+    /// Edit > Copy (Command-C) while the grid has focus. A cell being edited has
+    /// the field editor as first responder, so its own text copy still works.
+    @objc func copy(_ sender: Any?) {
+        onCopy?()
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(copy(_:)) { return !selectedRowIndexes.isEmpty }
+        return super.validateUserInterfaceItem(item)
+    }
+}
+
+/// Header view that shows a context menu for the column under the pointer.
+final class GridHeaderView: NSTableHeaderView {
+    var menuProvider: ((Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        let position = column(at: point)
+        guard let tableView, position >= 0,
+              let index = TableGridCoordinator.columnIndex(tableView.tableColumns[position].identifier) else { return nil }
+        return menuProvider?(index)
+    }
+}
+
+/// The cell a Copy Cell menu item refers to.
+final class CellReference: NSObject {
+    let rowID: UUID
+    let column: Int
+
+    init(rowID: UUID, column: Int) {
+        self.rowID = rowID
+        self.column = column
     }
 }
 
@@ -81,6 +119,8 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     private var editingTarget: (rowID: UUID, column: Int)?
     private var lastEditedColumn = 0
     private var columnWidths: [Int: CGFloat] = [:]
+    /// Where copies go. Tests swap in a private pasteboard.
+    var pasteboard = NSPasteboard.general
 
     static let rowNumberID = NSUserInterfaceItemIdentifier("rownum")
     static let rowViewID = NSUserInterfaceItemIdentifier("row")
@@ -101,6 +141,15 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     init(model: TableModel) {
         self.model = model
         super.init()
+        model.onColumnsRemapped = { [weak self] newIndex in
+            guard let self else { return }
+            var widths: [Int: CGFloat] = [:]
+            for (old, width) in columnWidths {
+                if let new = newIndex(old) { widths[new] = width }
+            }
+            columnWidths = widths
+            lastEditedColumn = newIndex(lastEditedColumn) ?? 0
+        }
     }
 
     // MARK: Setup
@@ -112,7 +161,7 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         table.rowHeight = Self.rowHeight
         table.intercellSpacing = NSSize(width: 3, height: 2)
         table.columnAutoresizingStyle = .noColumnAutoresizing
-        table.allowsColumnReordering = false
+        table.allowsColumnReordering = true
         table.allowsColumnResizing = true
         table.allowsColumnSelection = false
         table.allowsMultipleSelection = true
@@ -121,7 +170,9 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         table.usesAlternatingRowBackgroundColors = true
         table.style = .plain
         table.gridStyleMask = []
-        table.headerView = NSTableHeaderView()
+        let header = GridHeaderView()
+        header.menuProvider = { [weak self] index in self?.columnMenu(for: index) }
+        table.headerView = header
         table.dataSource = self
         table.delegate = self
         table.target = self
@@ -131,7 +182,12 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             beginEditing(row: row, column: lastEditedColumn)
         }
         table.onDeleteRows = { [weak self] in self?.model.deleteSelectedRows() }
-        table.menuProvider = { [weak self] row in self?.rowMenu(for: row) }
+        table.onCopy = { [weak self] in self?.copySelectedRows() }
+        table.menuProvider = { [weak self] row, position in
+            guard let self else { return nil }
+            let column = position >= 0 ? Self.columnIndex(tableView.tableColumns[position].identifier) : nil
+            return rowMenu(for: row, column: column)
+        }
 
         let rowNumber = NSTableColumn(identifier: Self.rowNumberID)
         rowNumber.title = "#"
@@ -161,7 +217,12 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     func apply(columns: [ColumnInfo], generation: Int, selection: Set<UUID>, sortOrder: [CellComparator]) {
         let titles = columns.map(\.title)
         if titles != appliedColumnTitles {
+            // Removing the sorted column clears the table's sort descriptors. That is
+            // not a user choice, so keep it out of the model and set the sort again below.
+            isSyncingSort = true
             reconcileColumns(columns)
+            isSyncingSort = false
+            appliedSortOrder = []
             appliedColumnTitles = titles
         }
         if sortOrder != appliedSortOrder {
@@ -180,8 +241,9 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     }
 
     private func reconcileColumns(_ columns: [ColumnInfo]) {
+        // Widths are not read back here: `columnWidths` is kept current by
+        // `tableViewColumnDidResize` and remapped when columns move.
         for column in tableView.tableColumns where column.identifier != Self.rowNumberID {
-            if let index = Self.columnIndex(column.identifier) { columnWidths[index] = column.width }
             tableView.removeTableColumn(column)
         }
         for info in columns {
@@ -299,6 +361,27 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         if model.sortOrder != order { model.sortOrder = order }
     }
 
+    func tableViewColumnDidResize(_ notification: Notification) {
+        guard let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
+              let index = Self.columnIndex(column.identifier) else { return }
+        columnWidths[index] = column.width
+    }
+
+    /// Keeps the row number column in first place.
+    func tableView(_ tableView: NSTableView, shouldReorderColumn columnIndex: Int, toColumn newColumnIndex: Int) -> Bool {
+        columnIndex > 0 && newColumnIndex > 0
+    }
+
+    /// Called once when a header drag ends. The table has already moved its columns,
+    /// so their identifiers (the old model indexes) give the new order.
+    func tableView(_ tableView: NSTableView, didDrag tableColumn: NSTableColumn) {
+        let order = tableView.tableColumns.compactMap { Self.columnIndex($0.identifier) }
+        // The moved columns keep their old identifiers, so rebuild them on the next
+        // apply even when the titles read the same (two columns can share a title).
+        appliedColumnTitles = nil
+        model.reorderColumns(order)
+    }
+
     // MARK: Editing
 
     @objc private func doubleClicked(_ sender: Any?) {
@@ -394,10 +477,23 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
 
     // MARK: Menus
 
-    func rowMenu(for row: Int) -> NSMenu? {
+    /// `column` is the model index of the clicked cell, which adds Copy Cell.
+    func rowMenu(for row: Int, column: Int? = nil) -> NSMenu? {
         guard row >= 0, row < model.visibleRows.count else { return nil }
         let id = model.visibleRows[row].id
         let menu = NSMenu()
+        if let column {
+            let copyCell = NSMenuItem(title: "Copy Cell", action: #selector(copyCell(_:)), keyEquivalent: "")
+            copyCell.target = self
+            copyCell.representedObject = CellReference(rowID: id, column: column)
+            menu.addItem(copyCell)
+        }
+        let selected = tableView.selectedRowIndexes.contains(row) ? tableView.selectedRowIndexes.count : 1
+        menu.addItem(item(selected > 1 ? "Copy Rows" : "Copy Row", #selector(copyRows(_:)), id))
+        if model.table.hasHeaderRow {
+            menu.addItem(item(selected > 1 ? "Copy Rows with Header" : "Copy Row with Header", #selector(copyRowsWithHeader(_:)), id))
+        }
+        menu.addItem(.separator())
         menu.addItem(item("Insert Row Above", #selector(insertRowAbove(_:)), id))
         menu.addItem(item("Insert Row Below", #selector(insertRowBelow(_:)), id))
         menu.addItem(item("Duplicate Row", #selector(duplicateRow(_:)), id))
@@ -413,6 +509,39 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         return menu
     }
 
+    func columnMenu(for index: Int) -> NSMenu? {
+        let count = model.table.columns.count
+        guard index >= 0, index < count else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(columnItem("Rename…", #selector(renameColumn(_:)), index))
+        menu.addItem(columnItem("Insert Column Left", #selector(insertColumnLeft(_:)), index))
+        menu.addItem(columnItem("Insert Column Right", #selector(insertColumnRight(_:)), index))
+        menu.addItem(.separator())
+        menu.addItem(columnItem("Move Left", #selector(moveColumnLeft(_:)), index, enabled: index > 0))
+        menu.addItem(columnItem("Move Right", #selector(moveColumnRight(_:)), index, enabled: index < count - 1))
+        menu.addItem(.separator())
+        menu.addItem(columnItem("Delete Column…", #selector(deleteColumn(_:)), index, enabled: count > 1))
+        return menu
+    }
+
+    private func columnItem(_ title: String, _ action: Selector, _ index: Int, enabled: Bool = true) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.representedObject = index as NSNumber
+        item.isEnabled = enabled
+        return item
+    }
+
+    private func columnIndex(from sender: Any?) -> Int? {
+        ((sender as? NSMenuItem)?.representedObject as? NSNumber)?.intValue
+    }
+
+    private func columnInfo(from sender: Any?) -> ColumnInfo? {
+        guard let index = columnIndex(from: sender) else { return nil }
+        return model.columnInfos.first { $0.id == index }
+    }
+
     private func item(_ title: String, _ action: Selector, _ id: UUID?) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
@@ -422,6 +551,48 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
 
     private func rowID(from sender: Any?) -> UUID? {
         ((sender as? NSMenuItem)?.representedObject as? NSUUID) as UUID?
+    }
+
+    // MARK: Copy
+
+    /// Rows to copy for a menu item: the selection when it holds the clicked row,
+    /// otherwise only the clicked row. Rows keep the order they have on screen.
+    private func rowsToCopy(clicked id: UUID?) -> [[String]] {
+        let selected = tableView.selectedRowIndexes
+        if let id, let index = model.visibleIndexByID[id], !selected.contains(index) {
+            return [model.visibleRows[index].cells]
+        }
+        return selected.compactMap { $0 < model.visibleRows.count ? model.visibleRows[$0].cells : nil }
+    }
+
+    func copySelectedRows() {
+        write(rowsToCopy(clicked: nil), header: nil)
+    }
+
+    @objc func copyRows(_ sender: Any?) {
+        write(rowsToCopy(clicked: rowID(from: sender)), header: nil)
+    }
+
+    @objc func copyRowsWithHeader(_ sender: Any?) {
+        write(rowsToCopy(clicked: rowID(from: sender)), header: model.table.columns)
+    }
+
+    @objc func copyCell(_ sender: Any?) {
+        guard let cell = (sender as? NSMenuItem)?.representedObject as? CellReference else { return }
+        let value = model.cellValue(rowID: cell.rowID, column: cell.column)
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
+    }
+
+    /// Writes plain tab-separated text and an HTML table, so spreadsheets and
+    /// documents can each take the format they handle best.
+    private func write(_ rows: [[String]], header: [String]?) {
+        guard !rows.isEmpty else { return }
+        let all = header.map { [$0] + rows } ?? rows
+        pasteboard.clearContents()
+        pasteboard.declareTypes([.string, .html], owner: nil)
+        pasteboard.setString(DelimitedText.clipboardText(all), forType: .string)
+        pasteboard.setString(DelimitedText.clipboardHTML(rows, header: header), forType: .html)
     }
 
     @objc func insertRowAbove(_ sender: Any?) {
@@ -451,5 +622,36 @@ final class TableGridCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
 
     @objc func addColumn(_ sender: Any?) {
         model.showAddColumn = true
+    }
+
+    @objc func renameColumn(_ sender: Any?) {
+        guard let column = columnInfo(from: sender) else { return }
+        model.renameText = column.title
+        model.pendingRename = column
+    }
+
+    @objc func insertColumnLeft(_ sender: Any?) {
+        guard let index = columnIndex(from: sender) else { return }
+        model.insertColumn(at: index)
+    }
+
+    @objc func insertColumnRight(_ sender: Any?) {
+        guard let index = columnIndex(from: sender) else { return }
+        model.insertColumn(at: index + 1)
+    }
+
+    @objc func moveColumnLeft(_ sender: Any?) {
+        guard let index = columnIndex(from: sender) else { return }
+        model.moveColumn(from: index, to: index - 1)
+    }
+
+    @objc func moveColumnRight(_ sender: Any?) {
+        guard let index = columnIndex(from: sender) else { return }
+        model.moveColumn(from: index, to: index + 1)
+    }
+
+    @objc func deleteColumn(_ sender: Any?) {
+        guard let column = columnInfo(from: sender) else { return }
+        model.pendingDelete = column
     }
 }

@@ -161,6 +161,44 @@ nonisolated enum DelimitedText {
         return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
+    /// Tab-separated text in the form Excel and Google Sheets paste into separate
+    /// cells. A field that holds a tab, a line break or a quote is quoted, with its
+    /// quotes doubled, so it still lands in one cell.
+    static func clipboardText(_ rows: [[String]]) -> String {
+        rows.map { row in
+            row.map { field in
+                let needsQuotes = field.contains("\t") || field.contains("\n") || field.contains("\r") || field.contains("\"")
+                guard needsQuotes else { return field }
+                return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+            }.joined(separator: "\t")
+        }.joined(separator: "\n")
+    }
+
+    /// An HTML table of the same cells. Google Docs pastes it as a table, and
+    /// spreadsheets use it to keep line breaks inside a cell. `header` becomes a row
+    /// of `<th>` cells.
+    static func clipboardHTML(_ rows: [[String]], header: [String]? = nil) -> String {
+        func cell(_ tag: String, _ text: String) -> String {
+            let escaped = text
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+                .replacingOccurrences(of: "\r\n", with: "<br>")
+                .replacingOccurrences(of: "\n", with: "<br>")
+                .replacingOccurrences(of: "\r", with: "<br>")
+            return "<\(tag)>\(escaped)</\(tag)>"
+        }
+        var html = "<meta charset=\"utf-8\"><table>"
+        if let header {
+            html += "<tr>" + header.map { cell("th", $0) }.joined() + "</tr>"
+        }
+        for row in rows {
+            html += "<tr>" + row.map { cell("td", $0) }.joined() + "</tr>"
+        }
+        return html + "</table>"
+    }
+
     static func serialize(_ table: DelimitedTable) -> String {
         let d = String(table.delimiter)
         var lines: [String] = []

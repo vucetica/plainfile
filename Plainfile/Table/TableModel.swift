@@ -68,6 +68,9 @@ final class TableModel {
 
     weak var undoManager: UndoManager?
     var onChange: ((DelimitedTable) -> Void)?
+    /// Called when columns are inserted, deleted or moved, with a map from each old
+    /// column index to its new index (`nil` for a deleted column).
+    var onColumnsRemapped: (((Int) -> Int?) -> Void)?
 
     init(table: DelimitedTable) {
         self.table = table
@@ -209,12 +212,18 @@ final class TableModel {
     // MARK: Column operations
 
     func addColumn(named name: String? = nil, after index: Int? = nil) {
+        insertColumn(named: name, at: index.map { $0 + 1 } ?? table.columns.count)
+    }
+
+    /// Inserts a column so that it ends up at position `at`.
+    func insertColumn(named name: String? = nil, at: Int) {
+        let at = min(max(at, 0), table.columns.count)
         mutate("Add Column") { t in
             let title = name ?? "Column \(t.columns.count + 1)"
-            let at = index.map { $0 + 1 } ?? t.columns.count
             t.columns.insert(title, at: at)
-            for i in t.rows.indices { t.rows[i].cells.insert("", at: at) }
+            for i in t.rows.indices { t.rows[i].cells.insert("", at: min(at, t.rows[i].cells.count)) }
         }
+        remapColumns { $0 >= at ? $0 + 1 : $0 }
     }
 
     func renameColumn(_ index: Int, to name: String) {
@@ -226,11 +235,46 @@ final class TableModel {
 
     func deleteColumn(_ index: Int) {
         guard table.columns.count > 1, index < table.columns.count else { return }
-        sortOrder.removeAll { $0.column == index }
         mutate("Delete Column") { t in
             t.columns.remove(at: index)
             for i in t.rows.indices where index < t.rows[i].cells.count { t.rows[i].cells.remove(at: index) }
         }
+        remapColumns { $0 == index ? nil : ($0 > index ? $0 - 1 : $0) }
+    }
+
+    /// Moves the column at `from` so that it ends up at position `to`.
+    func moveColumn(from: Int, to: Int) {
+        let count = table.columns.count
+        guard from >= 0, from < count, to >= 0, to < count, from != to else { return }
+        var order = Array(0..<count)
+        order.remove(at: from)
+        order.insert(from, at: to)
+        reorderColumns(order)
+    }
+
+    /// Puts the columns in a new order, where `order[newPosition]` is the old index.
+    func reorderColumns(_ order: [Int]) {
+        let count = table.columns.count
+        guard order.count == count, Set(order) == Set(0..<count), order != Array(0..<count) else { return }
+        var newIndex = [Int](repeating: 0, count: count)
+        for (position, old) in order.enumerated() { newIndex[old] = position }
+        mutate("Move Column") { t in
+            t.columns = order.map { t.columns[$0] }
+            for i in t.rows.indices {
+                let cells = t.rows[i].cells
+                t.rows[i].cells = order.map { $0 < cells.count ? cells[$0] : "" }
+            }
+        }
+        remapColumns { $0 < count ? newIndex[$0] : $0 }
+    }
+
+    /// Moves position-keyed state (sort order, and the grid's widths through
+    /// `onColumnsRemapped`) to the columns' new positions. `nil` drops the column.
+    /// Runs after the table changed, because setting `sortOrder` sorts the rows.
+    private func remapColumns(_ newIndex: @escaping (Int) -> Int?) {
+        let remapped = sortOrder.compactMap { c in newIndex(c.column).map { CellComparator(column: $0, order: c.order) } }
+        if remapped != sortOrder { sortOrder = remapped }
+        onColumnsRemapped?(newIndex)
     }
 
     func setHasHeaderRow(_ flag: Bool) {
