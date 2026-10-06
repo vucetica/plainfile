@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-06
+
+### Changed
+- The automated tests for the split editor now wait until each editor and selection appears, instead of waiting a fixed time. They failed on slower build machines before. The app itself works the same as in 1.1.0.
+
 ## [1.1.0] - 2026-10-06
 
 ### Added
@@ -53,7 +58,8 @@ This is the first public release of Plainfile.
 - **Native document behavior** through the system document architecture: autosave, versions, Open Recent and rename.
 - **Help > Open Sample Files** opens one sample each of plain text, Markdown, CSV and C# as tabs, so you can try every mode.
 
-[Unreleased]: https://github.com/vucetica/plainfile/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/vucetica/plainfile/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/vucetica/plainfile/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/vucetica/plainfile/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/vucetica/plainfile/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/vucetica/plainfile/compare/v1.0.1...v1.0.2
