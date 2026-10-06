@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- When a file was opened from Finder, the editor or table sometimes started under the title bar and tab bar, which hid the first lines. This happened when the window reopened at the same size it was last used.
+
 ## [1.0.2] - 2026-10-05
 
 ### Added

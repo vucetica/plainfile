@@ -32,20 +32,23 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
             super.viewDidMoveToWindow()
             guard let window, window !== configuredWindow else { return }
             configuredWindow = window
+            // SwiftUI gives document windows a full size content view. The editors do not
+            // scroll under the title bar, and on macOS 26 that style makes AppKit add a
+            // glass "scroll pocket" above every scroll view that mirrors the top of the
+            // content into the title bar (grid lines appeared to run through it).
+            // This must happen before the frame is set below. A frame set while the style
+            // is still on sizes the content view to the whole window, and removing the
+            // style afterwards does not shrink it again, so the editor reached up under
+            // the title and tab bar whenever the later frame pass changed nothing.
+            window.styleMask.remove(.fullSizeContentView)
             // The first window of a launch reopens at the remembered frame. This early
-            // pass makes it appear near its final size; the window is not on screen yet,
-            // so AppKit treats the frame as content and adds the title and tab bar on
-            // top. The exact frame is applied again below once the window is visible.
+            // pass makes it appear near its final size; the tab bar is added later, so
+            // the exact frame is applied again below once the window is visible.
             let isFirstWindow = WindowTabbingConfigurator.isFirstDocumentWindow(window)
             if isFirstWindow {
                 window.setFrameUsingName(WindowTabbingConfigurator.frameName)
             }
             observeFrame(of: window)
-            // SwiftUI gives document windows a full size content view. The editors do not
-            // scroll under the title bar, and on macOS 26 that style makes AppKit add a
-            // glass "scroll pocket" above every scroll view that mirrors the top of the
-            // content into the title bar (grid lines appeared to run through it).
-            window.styleMask.remove(.fullSizeContentView)
             // Keep the tabbing identifier SwiftUI assigns to document windows so a new
             // window matches the existing ones at the moment AppKit places it.
             window.tabbingMode = .preferred
@@ -53,8 +56,9 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
             // The window may already be on screen when this view is attached, in which
             // case AppKit has placed it on its own. Join the existing group explicitly.
             WindowTabbingConfigurator.attachWhenVisible(window, attempt: 0) { [weak self, weak window] in
-                guard let self else { return }
+                guard let self, let window else { return }
                 guard isFirstWindow else {
+                    WindowTabbingConfigurator.fitContentView(of: window)
                     isSavingEnabled = true
                     return
                 }
@@ -63,6 +67,7 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
                 DispatchQueue.main.asyncAfter(deadline: .now() + WindowTabbingConfigurator.settleDelay) { [weak self, weak window] in
                     guard let self, let window else { return }
                     window.setFrameUsingName(WindowTabbingConfigurator.frameName)
+                    WindowTabbingConfigurator.fitContentView(of: window)
                     isSavingEnabled = true
                 }
             }
@@ -81,6 +86,19 @@ struct WindowTabbingConfigurator: NSViewRepresentable {
                     }
                 }
             }
+        }
+    }
+
+    /// Makes the content view fill exactly the area below the title and tab bar. AppKit
+    /// sizes the content view only when the window frame changes, so a content view that
+    /// was sized while SwiftUI's full size content style was still on can keep covering
+    /// the title bar after the style is gone. This check does not depend on the order or
+    /// timing of the window setup steps.
+    static func fitContentView(of window: NSWindow) {
+        guard !window.styleMask.contains(.fullSizeContentView), let content = window.contentView else { return }
+        let area = window.contentLayoutRect
+        if content.frame != area {
+            content.frame = area
         }
     }
 
