@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-12
+
+### Fixed
+- The app's sandbox settings listed the network permission with the value "off". The Mac App Store does not accept a permission that is listed but turned off, so the entry is removed. Plainfile still has no network access.
+
 ## [1.1.1] - 2026-10-06
 
 ### Changed
@@ -58,7 +63,8 @@ This is the first public release of Plainfile.
 - **Native document behavior** through the system document architecture: autosave, versions, Open Recent and rename.
 - **Help > Open Sample Files** opens one sample each of plain text, Markdown, CSV and C# as tabs, so you can try every mode.
 
-[Unreleased]: https://github.com/vucetica/plainfile/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/vucetica/plainfile/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/vucetica/plainfile/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/vucetica/plainfile/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/vucetica/plainfile/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/vucetica/plainfile/compare/v1.0.2...v1.0.3
